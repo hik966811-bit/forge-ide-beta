@@ -1418,6 +1418,41 @@ window.addEventListener('DOMContentLoaded', async () => {
   if (settingsBtn) settingsBtn.addEventListener('click', openSettings);
   if (settingsBtnActivity) settingsBtnActivity.addEventListener('click', openSettings);
 
+  // MCP button
+  const btnMCP = document.getElementById('btnMCP');
+  if (btnMCP) {
+    btnMCP.addEventListener('click', async () => {
+      try {
+        const res = await fetch('/api/mcp/status');
+        const data = await res.json();
+        const lines = ['MCP Servers:\n'];
+        if (data.servers && data.servers.length > 0) {
+          for (const srv of data.servers) {
+            lines.push('  ' + srv.name + ': ' + srv.command + ' ' + (srv.args || []).join(' '));
+          }
+        } else {
+          lines.push('  No servers configured.');
+          lines.push('\nAdd to ~/.forge-ide/config.json:');
+          lines.push('  "MCP_SERVERS": [{"name": "my-server", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem"]}]');
+        }
+        if (data.tools && data.tools.length > 0) {
+          lines.push('\nLoaded tools (' + data.tools.length + '):');
+          data.tools.forEach(t => lines.push('  - ' + t));
+        }
+        const overlay = document.getElementById('settingsOverlay');
+        if (overlay) {
+          overlay.style.display = 'flex';
+          const content = overlay.querySelector('.settings-content') || overlay.querySelector('[class*="content"]');
+          if (content) {
+            content.innerHTML = '<div style="padding:20px;font-family:monospace;font-size:13px;line-height:1.8;color:#e5e5e5;white-space:pre-wrap">' + lines.join('\n').replace(/\n/g, '<br>') + '</div><div style="padding:10px 20px"><button onclick="this.closest(\'[id*=overlay],.modal-overlay\').style.display=\'none\'" style="background:#f97316;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-weight:600">Close</button></div>';
+          }
+        }
+      } catch (e) {
+        console.error('MCP status error:', e);
+      }
+    });
+  }
+
   // Toggle chat history
   const toggleHistoryBtn = document.getElementById('btnToggleChatHistory');
   const historyPanel = document.getElementById('chatHistoryPanel');

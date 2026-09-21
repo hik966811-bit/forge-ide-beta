@@ -778,6 +778,16 @@ class IDEServer {
         return;
       }
 
+      // ── MCP Status ──────────────────────────────────────────────────────
+      if (pathname === '/api/mcp/status' && req.method === 'GET') {
+        const { getMCPTools } = require('./tools');
+        const tools = getMCPTools();
+        const servers = config.MCP_SERVERS || [];
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ servers, tools }));
+        return;
+      }
+
       // ── Static Files ────────────────────────────────────────────────────────
       let reqPath = pathname;
       if (reqPath === '/' || reqPath === '/index.html') {
