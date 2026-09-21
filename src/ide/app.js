@@ -1439,14 +1439,18 @@ window.addEventListener('DOMContentLoaded', async () => {
           lines.push('\nLoaded tools (' + data.tools.length + '):');
           data.tools.forEach(t => lines.push('  - ' + t));
         }
-        const overlay = document.getElementById('settingsOverlay');
-        if (overlay) {
-          overlay.style.display = 'flex';
-          const content = overlay.querySelector('.settings-content') || overlay.querySelector('[class*="content"]');
-          if (content) {
-            content.innerHTML = '<div style="padding:20px;font-family:monospace;font-size:13px;line-height:1.8;color:#e5e5e5;white-space:pre-wrap">' + lines.join('\n').replace(/\n/g, '<br>') + '</div><div style="padding:10px 20px"><button onclick="this.closest(\'[id*=overlay],.modal-overlay\').style.display=\'none\'" style="background:#f97316;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-weight:600">Close</button></div>';
-          }
+        // Create MCP overlay
+        let mcpOverlay = document.getElementById('mcpOverlay');
+        if (!mcpOverlay) {
+          mcpOverlay = document.createElement('div');
+          mcpOverlay.id = 'mcpOverlay';
+          mcpOverlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:9999;';
+          mcpOverlay.innerHTML = '<div style="background:#1a1a1a;border:1px solid #333;border-radius:10px;padding:24px;max-width:500px;width:90%;max-height:80vh;overflow:auto;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;"><h3 style="margin:0;font-size:16px;color:#f97316;">MCP Servers</h3><button onclick="document.getElementById(\'mcpOverlay\').style.display=\'none\'" style="background:transparent;border:none;color:#888;cursor:pointer;font-size:18px;">&times;</button></div><div id="mcpContent" style="font-family:monospace;font-size:13px;line-height:1.8;color:#e5e5e5;white-space:pre-wrap;"></div><div style="margin-top:16px;text-align:right;"><button onclick="document.getElementById(\'mcpOverlay\').style.display=\'none\'" style="background:#f97316;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-weight:600;">Close</button></div></div>';
+          document.body.appendChild(mcpOverlay);
+          mcpOverlay.addEventListener('click', (e) => { if (e.target === mcpOverlay) mcpOverlay.style.display = 'none'; });
         }
+        document.getElementById('mcpContent').textContent = lines.join('\n');
+        mcpOverlay.style.display = 'flex';
       } catch (e) {
         console.error('MCP status error:', e);
       }
