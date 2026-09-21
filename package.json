@@ -1,0 +1,68 @@
+{
+  "name": "forge-ide",
+  "version": "1.0.0",
+  "description": "Forge IDE — AI-powered code editor with browser automation. No API key needed.",
+  "main": "src/index.js",
+  "bin": {
+    "forge-agent": "src/index.js",
+    "forge-ide": "src/index.js",
+    "fa": "src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "ide": "node src/index.js --ide",
+    "postinstall": "node src/postinstall.js",
+    "debug": "node src/index.js --debug",
+    "calibrate": "node src/calibrate.js",
+    "test": "jest --runInBand",
+    "test:watch": "jest --watch --runInBand",
+    "test:coverage": "jest --coverage --runInBand",
+    "audit": "npm audit",
+    "audit:fix": "npm audit fix"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/tests/**/*.test.js"
+    ],
+    "collectCoverageFrom": [
+      "src/**/*.js",
+      "!src/index.js",
+      "!src/postinstall.js",
+      "!src/calibrate.js"
+    ],
+    "coverageReporters": [
+      "text",
+      "lcov"
+    ],
+    "testTimeout": 15000,
+    "forceExit": true
+  },
+  "files": [
+    "src/",
+    "installer/",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "playwright": "^1.45.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "forge-ide",
+    "ai",
+    "code-editor",
+    "browser-automation",
+    "coding-agent",
+    "cli",
+    "llm",
+    "autonomous"
+  ],
+  "author": "",
+  "license": "MIT"
+}

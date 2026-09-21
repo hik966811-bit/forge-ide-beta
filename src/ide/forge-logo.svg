@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF8C00"/>
+      <stop offset="30%" stop-color="#FF6600"/>
+      <stop offset="60%" stop-color="#FF4500"/>
+      <stop offset="100%" stop-color="#CC3300"/>
+    </linearGradient>
+    <linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFA500"/>
+      <stop offset="50%" stop-color="#FF7700"/>
+      <stop offset="100%" stop-color="#E65500"/>
+    </linearGradient>
+    <linearGradient id="g3" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FF9933"/>
+      <stop offset="100%" stop-color="#CC4400"/>
+    </linearGradient>
+  </defs>
+  <!-- Background (transparent) -->
+  <!-- Main F body - angular/polygonal style -->
+  <polygon points="85,60 380,60 380,120 165,120 165,200 320,200 320,260 165,260 165,440 85,440" fill="url(#g1)"/>
+  <!-- Top wing - sharp angular -->
+  <polygon points="380,60 430,35 445,95 380,120" fill="url(#g2)"/>
+  <!-- Middle wing -->
+  <polygon points="320,200 410,155 420,215 320,260" fill="url(#g3)"/>
+  <!-- Bottom tail wing -->
+  <polygon points="165,440 120,480 75,450 85,440" fill="url(#g2)"/>
+  <!-- Lightning bolt cutout accent -->
+  <polygon points="195,120 255,120 225,200 285,200 175,440 235,260 175,260" fill="rgba(0,0,0,0.25)"/>
+  <!-- Faceted highlight on body -->
+  <polygon points="85,60 165,60 165,120 85,120" fill="rgba(255,255,255,0.15)"/>
+  <polygon points="165,200 245,200 165,260" fill="rgba(255,255,255,0.08)"/>
+</svg>
