@@ -1,6 +1,6 @@
 'use strict';
 
-const { TOOLS, getMCPTools } = require('./tools');
+const { TOOLS } = require('./tools');
 
 // ─────────────────────────────────────────────
 //  Build the complete agent system prompt
@@ -176,22 +176,6 @@ function buildToolDocumentation() {
 
     lines.push(`${category}:`);
     available.forEach(name => {
-      const tool = tools[name];
-      if (!tool) return;
-      const params = Object.entries(tool.parameters || {})
-        .map(([k, v]) => `${k}: ${v.type}${v.required ? '' : '?'}`)
-        .join(', ');
-      lines.push(`  ${name}(${params})`);
-      lines.push(`    ${tool.description || ''}`);
-    });
-    lines.push('');
-  }
-
-  // MCP Tools (dynamically loaded from connected servers)
-  const mcpTools = getMCPTools();
-  if (mcpTools.length > 0) {
-    lines.push('MCP Server Tools:');
-    mcpTools.forEach(name => {
       const tool = tools[name];
       if (!tool) return;
       const params = Object.entries(tool.parameters || {})

@@ -830,52 +830,6 @@ const BUILT_IN_COMMANDS = [
     },
   },
 
-  // ── MCP ──────────────────────────────────────────────────────────────────
-  {
-    name: 'mcp',
-    aliases: [],
-    description: 'Manage MCP servers (list, connect, disconnect)',
-    usage: '/mcp [list|status]',
-    category: 'Advanced',
-    requiresArg: false,
-    execute: async ({ arg }) => {
-      const { getMCPTools, initMCPServers, shutdownMCPServers } = require('./tools');
-      const sub = (arg || 'status').toLowerCase().trim();
-
-      if (sub === 'list' || sub === 'status') {
-        const servers = config.MCP_SERVERS || [];
-        if (servers.length === 0) {
-          return 'No MCP servers configured.\nAdd servers to ~/.forge-ide/config.json:\n  "MCP_SERVERS": [{"name": "my-server", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem"]}]';
-        }
-        const lines = ['MCP Servers:'];
-        for (const srv of servers) {
-          lines.push(`  - ${srv.name}: ${srv.command} ${(srv.args || []).join(' ')}`);
-        }
-        const tools = getMCPTools();
-        if (tools.length > 0) {
-          lines.push(`\nLoaded tools (${tools.length}):`);
-          tools.forEach(t => lines.push(`  - ${t}`));
-        } else {
-          lines.push('\nNot connected. Use /mcp connect to initialize.');
-        }
-        return lines.join('\n');
-      }
-
-      if (sub === 'connect') {
-        await initMCPServers();
-        const tools = getMCPTools();
-        return `MCP connected. ${tools.length} tools loaded.`;
-      }
-
-      if (sub === 'disconnect') {
-        await shutdownMCPServers();
-        return 'MCP servers disconnected.';
-      }
-
-      return 'Usage: /mcp [list|status|connect|disconnect]';
-    },
-  },
-
 ];
 
 // ─────────────────────────────────────────────

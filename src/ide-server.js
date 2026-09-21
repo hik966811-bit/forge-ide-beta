@@ -252,6 +252,7 @@ class IDEServer {
       this.server.listen(this.port, this.host, () => {
         logger.info(`Forge IDE running at: http://${this.host}:${this.port}`);
         this._initBrowserInBackground();
+        this._initMCPInBackground();
         resolve(`http://${this.host}:${this.port}`);
       });
     });
@@ -273,8 +274,17 @@ class IDEServer {
     }
   }
 
+  async _initMCPInBackground() {
+    try {
+      const { initMCPServers } = require('./tools');
+      await initMCPServers();
+    } catch (err) {
+      logger.warn('MCP init failed: ' + err.message);
+    }
+  }
+
   // Stop HTTP Server and close clients
-  stop() {
+  async stop() {
     if (this.server) {
       for (const client of this.clients) {
         try { client.end(); } catch (e) {}
@@ -283,6 +293,10 @@ class IDEServer {
       this.server.close();
       this.server = null;
     }
+    try {
+      const { shutdownMCPServers } = require('./tools');
+      await shutdownMCPServers();
+    } catch (e) {}
   }
 
   // Handle incoming HTTP requests

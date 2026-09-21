@@ -29,11 +29,15 @@ const READ_ONLY_TOOLS = new Set([
 const CATEGORY_LABELS = {
   file_write: 'write files', file_delete: 'delete files',
   shell_exec: 'run shell commands', env_write: 'modify .env files',
-  system_write: 'write to clipboard',
+  system_write: 'write to clipboard', mcp_tool: 'use MCP server tool',
 };
 
 function isReadOnly(toolName) { return READ_ONLY_TOOLS.has(toolName); }
-function getCategory(toolName) { return TOOL_CATEGORIES[toolName] || 'other'; }
+function getCategory(toolName) {
+  // MCP tools (server__tool format) default to shell_exec for permission prompts
+  if (toolName.includes('__')) return 'mcp_tool';
+  return TOOL_CATEGORIES[toolName] || 'other';
+}
 
 class PermissionStore {
   constructor(workingDir) {

@@ -21,7 +21,6 @@ const { loadAllPlugins } = require('./plugin-loader');
 const ToolCache = require('./tool-cache');
 const { smartTruncate } = require('./truncator');
 const security = require('./security');
-const { MCPManager } = require('./mcp-client');
 const os = require('os');
 
 // ─────────────────────────────────────────────
@@ -1393,8 +1392,7 @@ function validateToolArgs(toolName, tool, args) {
 // ─────────────────────────────────────────────
 async function executeTool(name, args) {
   // Fix 13 — Validate tool name against allowlist
-  // MCP tools use double underscores (server__tool), so allow those
-  if (!/^[a-z_][a-z0-9_]*(__[a-z0-9_]+)?$/.test(name)) {
+  if (!/^[a-z_][a-z0-9_]*$/.test(name)) {
     throw new Error(`Security: invalid tool name "${name}"`);
   }
 
@@ -1476,51 +1474,4 @@ function getLoadedPlugins() {
   return loadedPlugins;
 }
 
-// ─────────────────────────────────────────────
-//  MCP Integration
-// ─────────────────────────────────────────────
-
-const mcpManager = new MCPManager();
-let mcpInitialized = false;
-
-async function initMCPServers() {
-  if (mcpInitialized) return;
-  const servers = config.MCP_SERVERS || [];
-  if (servers.length === 0) return;
-  try {
-    const results = await mcpManager.connectAll(servers);
-    for (const r of results) {
-      if (r.error) {
-        logger.error(`[MCP] ${r.server}: ${r.error}`);
-      } else {
-        logger.success(`[MCP] ${r.server}: ${r.tools?.length || 0} tools loaded`);
-      }
-    }
-    // Register MCP tools in the TOOLS object
-    for (const toolName of mcpManager.getToolNames()) {
-      const desc = mcpManager.getToolDescription(toolName);
-      const params = mcpManager.getToolParameters(toolName);
-      TOOLS[toolName] = {
-        description: `[MCP] ${desc}`,
-        parameters: params || {},
-        async execute(args) {
-          return mcpManager.callTool(toolName, args);
-        },
-        _isMCP: true,
-      };
-    }
-    mcpInitialized = true;
-  } catch (err) {
-    logger.error(`[MCP] Init failed: ${err.message}`);
-  }
-}
-
-async function shutdownMCPServers() {
-  await mcpManager.disconnectAll();
-}
-
-function getMCPTools() {
-  return mcpManager.getToolNames();
-}
-
-module.exports = { TOOLS, executeTool, getToolDescriptions, getLoadedPluginCount, getLoadedPlugins, cache, initMCPServers, shutdownMCPServers, getMCPTools };
+module.exports = { TOOLS, executeTool, getToolDescriptions, getLoadedPluginCount, getLoadedPlugins, cache };
