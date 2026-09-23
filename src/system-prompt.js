@@ -34,13 +34,14 @@ HOW TO USE TOOLS
 ═══════════════════════════════════════════
 
 When you need to interact with files or run commands, you MUST use
-a tool call. Format tool calls EXACTLY like this:
+a tool call. Format tool calls EXACTLY like this (replace with a real tool):
 
 <tool_call>
-{"tool": "TOOL_NAME", "args": {"ARG_NAME": "VALUE", "ARG_NAME2": "VALUE2"}}
+{"tool": "list_directory", "args": {"path": "."}}
 </tool_call>
 
 RULES FOR TOOL CALLS:
+0. NEVER use placeholder names like TOOL_NAME, TOOL_NAME_HERE, ARG_NAME, VALUE, param1, or value1 — always use a real tool from AVAILABLE TOOLS.
 1. MAXIMUM SPEED & EFFICIENCY: When creating multiple files (e.g. creating a calculator, web app, or multi-file project), use write_files to create them ALL in a SINGLE tool call! This avoids slow roundtrips and finishes tasks in seconds.
 2. Put the tool call at the END of your response
 3. After a tool call STOP — do not write anything after the closing tag

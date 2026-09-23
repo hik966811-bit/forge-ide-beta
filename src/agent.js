@@ -7,7 +7,7 @@ const { execSync }                 = require('child_process');
 const config                       = require('./config');
 const logger                       = require('./logger');
 const ForgeBrowser                 = require('./browser');
-const { executeTool, cache }       = require('./tools');
+const { executeTool, cache, TOOLS }  = require('./tools');
 const { parseResponse,
         formatToolResult }         = require('./parser');
 const { PermissionStore, isReadOnly, getCategory, CATEGORY_LABELS } = require('./permission-store');
@@ -300,6 +300,46 @@ class ForgeAgent {
 
         // ── Case 1: Tool call ──────────────────────────────────────────────
         if (parsed.type === 'tool_call') {
+          // Reject placeholder / unknown tool names BEFORE the UI card,
+          // permission prompt, or executor — the model sometimes copies the
+          // format example (TOOL_NAME_HERE / param1) verbatim.
+          const rawToolName = String(parsed.name || '').trim();
+          const namePatternOk = /^[a-z_][a-z0-9_]*(__[a-z0-9_]+)?$/.test(rawToolName);
+          const isPlaceholder = /^(TOOL_NAME_HERE|TOOL_NAME|ARG_NAME\d*|param\d+|value\d+|tool_name_here|tool_name|arg_name\d*)$/i.test(rawToolName);
+          const toolKnown = !!(TOOLS && TOOLS[rawToolName]);
+
+          if (isPlaceholder || !namePatternOk || !toolKnown) {
+            _consecutiveUnrecognised++;
+            logger.warn(`Invalid tool name from model: "${rawToolName}" — asking it to pick a real tool`);
+            progress.recordError(`invalid tool name: ${rawToolName}`);
+
+            if (_consecutiveUnrecognised >= MAX_CORRECTION_ATTEMPTS) {
+              const failed = this.conversation.addToolResult(
+                'SYSTEM',
+                `You have sent the invalid tool name "${rawToolName}" ${MAX_CORRECTION_ATTEMPTS} times in a row. ` +
+                `Stop repeating it. Respond in plain text with your best final answer for the task, or use a REAL tool ` +
+                `name from the AVAILABLE TOOLS list (for example: list_directory, read_file, write_file, run_command).`,
+                true
+              );
+              await this.browser.sendMessage(failed);
+              // Fall through — next model turn should produce text or a real tool
+            } else {
+              const available = Object.keys(TOOLS || {}).slice(0, 30).join(', ');
+              const recovery = this.conversation.addToolResult(
+                'SYSTEM',
+                `"${rawToolName || '(empty)'}" is not a valid tool. ` +
+                `Never use placeholder names (TOOL_NAME_HERE, TOOL_NAME, param1, value1). ` +
+                `Call one REAL tool from AVAILABLE TOOLS with this exact format:\n` +
+                '```tool_call\n{"name": "list_directory", "args": {"path": "."}}\n```\n' +
+                `Known tools include: ${available}`,
+                true
+              );
+              await this.browser.sendMessage(recovery);
+            }
+            step++;
+            continue;
+          }
+
           // Reset unrecognised counter — model is behaving correctly
           _consecutiveUnrecognised = 0;
 
@@ -482,7 +522,7 @@ class ForgeAgent {
               'SYSTEM',
               'Your response appeared to contain a tool call but it could not be parsed. ' +
               'Please respond with ONLY a tool call block and nothing else:\n' +
-              '<tool_call>\n{"tool": "TOOL_NAME", "args": {}}\n</tool_call>',
+              '```tool_call\n{"name": "list_directory", "args": {"path": "."}}\n```',
               true
             );
             await this.browser.sendMessage(retry);

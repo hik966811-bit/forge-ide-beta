@@ -1394,8 +1394,13 @@ function validateToolArgs(toolName, tool, args) {
 async function executeTool(name, args) {
   // Fix 13 — Validate tool name against allowlist
   // MCP tools use double underscores (server__tool), so allow those
-  if (!/^[a-z_][a-z0-9_]*(__[a-z0-9_]+)?$/.test(name)) {
-    throw new Error(`Security: invalid tool name "${name}"`);
+  if (typeof name !== 'string' || !/^[a-z_][a-z0-9_]*(__[a-z0-9_]+)?$/.test(name)) {
+    throw new Error(
+      `Security: invalid tool name "${name}". ` +
+      `Tool names must be lowercase snake_case. ` +
+      `Never use placeholders like TOOL_NAME_HERE, TOOL_NAME, param1, or value1 — ` +
+      `pick a real tool from the AVAILABLE TOOLS list.`
+    );
   }
 
   const tool = TOOLS[name];
