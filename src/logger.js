@@ -124,6 +124,11 @@ const logger = {
     getTUI().renderHealthCheck(checks);
   },
 
+  // ── Login required (hooked by ide-server to broadcast SSE) ───────────────
+  loginRequired(model) {
+    getTUI().warn(`Login required for ${model} — log in in the browser window.`);
+  },
+
   // ── Error display ─────────────────────────────────────────────────────────
   renderError(err) {
     getTUI().renderError(err);

@@ -1181,6 +1181,13 @@ function setupEventSource() {
     showToast(`Error: ${data.error}`, 'error');
   });
 
+  state.eventSource.addEventListener('login_required', (e) => {
+    const data = JSON.parse(e.data);
+    const model = data.model || 'the AI site';
+    showToast(`Log in to ${model} in the browser window — Forge auto-detects when done`, 'error');
+    appendChatMessage('assistant', `**Login required:** log in to \`${model}\` in the browser window that opened. Forge waits and continues automatically once you're logged in.`);
+  });
+
   state.eventSource.addEventListener('tree_changed', () => {
     loadWorkspace();
   });

@@ -15,10 +15,13 @@ class ArenaAdapter extends BaseAdapter {
   constructor(page, config) {
     super(page, config);
     this._ensureThinkingTracker();
+    this._modeChecked = false;
     this.selectors = {
       chatInput: [
+        'textarea[placeholder*="Ask anything" i]',
         'textarea[placeholder*="Ask followup" i]',
         'textarea[placeholder*="followup" i]',
+        'textarea[placeholder*="Ask" i]',
         'textarea[placeholder*="message" i]',
         'textarea[placeholder*="prompt" i]',
         '[contenteditable="true"][data-placeholder]',
@@ -28,8 +31,9 @@ class ArenaAdapter extends BaseAdapter {
         '[contenteditable="true"]',
       ],
       sendButton: [
+        'button[type="submit"][aria-label*="Send" i]',
+        'button[aria-label="Send message" i]',
         'button[aria-label*="Send" i]',
-        'button[aria-label*="send" i]',
         'button[data-testid*="send" i]',
         '[class*="send-button"]',
         '[class*="sendButton"]',
@@ -79,7 +83,114 @@ class ArenaAdapter extends BaseAdapter {
 
   // ── Core methods ───────────────────────────────────────────────────────────
 
+  /**
+   * Return false when the arena.ai login wall is showing.
+   * A visible "Log In" / "Sign Up" button means the session is not authenticated.
+   */
+  async isLoggedIn() {
+    try {
+      return await this.page.evaluate(() => {
+        const vis = el => {
+          const s = window.getComputedStyle(el);
+          const r = el.getBoundingClientRect();
+          return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0'
+            && r.width > 0 && r.height > 0;
+        };
+        for (const el of document.querySelectorAll('button, a, [role="button"]')) {
+          const t = (el.innerText || '').trim().toLowerCase();
+          if ((t === 'log in' || t === 'sign in' || t === 'sign up' || t === 'log in to continue') && vis(el)) {
+            return false;
+          }
+        }
+        return true;
+      });
+    } catch {
+      // On evaluation errors assume logged in so we never block a working session
+      return true;
+    }
+  }
+
+  /**
+   * Best-effort: switch Arena out of Battle/Side-by-side into Direct mode
+   * so responses are a single clean stream. Direct lives inside the mode
+   * dropdown (trigger shows the current mode, e.g. "Battle").
+   */
+  async _ensureDirectMode() {
+    if (this._modeChecked) return;
+    this._modeChecked = true;
+    try {
+      const findDirect = () => this.page.evaluate(() => {
+        const vis = el => {
+          const s = window.getComputedStyle(el);
+          const r = el.getBoundingClientRect();
+          return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0'
+            && r.width > 0 && r.height > 0;
+        };
+        const els = [...document.querySelectorAll('button, [role="tab"], [role="menuitem"], [role="option"], [role="menuitemradio"], a')];
+        const direct = els.find(e => {
+          if (!vis(e)) return false;
+          const t = (e.innerText || '').trim().toLowerCase();
+          return t === 'direct' || t.startsWith('direct\n') || t.startsWith('directchat') || /^direct\b/.test(t);
+        });
+        if (!direct) return { found: false };
+        const active =
+          direct.getAttribute('aria-selected') === 'true' ||
+          direct.getAttribute('data-state') === 'active' ||
+          direct.getAttribute('aria-pressed') === 'true' ||
+          direct.classList.contains('active') ||
+          direct.classList.contains('selected');
+        if (active) return { found: true, active: true, clicked: false };
+        direct.click();
+        return { found: true, active: false, clicked: true };
+      });
+
+      let res = await findDirect().catch(() => ({ found: false }));
+
+      // Direct is usually hidden inside the mode dropdown — open it first
+      if (!res.found) {
+        const opened = await this.page.evaluate(() => {
+          const vis = el => {
+            const s = window.getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0'
+              && r.width > 0 && r.height > 0;
+          };
+          const modes = ['battle', 'agent mode', 'side by side', 'direct', 'auto'];
+          const trigger = [...document.querySelectorAll('button')].find(e => {
+            if (!vis(e)) return false;
+            const t = (e.innerText || '').trim().toLowerCase();
+            return modes.some(m => t === m || t.startsWith(m));
+          });
+          if (!trigger) return false;
+          trigger.click();
+          return true;
+        }).catch(() => false);
+        if (opened) {
+          await this.page.waitForTimeout(500);
+          res = await findDirect().catch(() => ({ found: false }));
+        }
+      }
+
+      if (res && res.clicked) await this.page.waitForTimeout(600);
+    } catch { /* mode switch is best-effort only */ }
+  }
+
   async sendMessage(text) {
+    // Fail fast when the login wall is up — never type into a dead input
+    try {
+      if (!(await this.isLoggedIn())) {
+        const err = new Error(
+          'Not logged into arena.ai — log in in the browser window, then retry.'
+        );
+        err.retryable = false;
+        throw err;
+      }
+    } catch (e) {
+      if (e.retryable === false) throw e;
+    }
+
+    await this._ensureDirectMode();
+
     await withSendRetry(async () => {
       const { el, isTextarea } = await this._findInput();
 
@@ -101,20 +212,46 @@ class ArenaAdapter extends BaseAdapter {
         }, el, text);
       }
 
-      const sendDelayMs = this.config.SEND_DELAY || 300;
+      // The send button is disabled while the input is empty — poll until it
+      // enables after the fill, up to 5s (React state may lag the fill).
+      const sendDelayMs = Math.max(this.config.SEND_DELAY || 300, 5000);
       const startPoll = Date.now();
       let clicked = false;
       while (Date.now() - startPoll < sendDelayMs) {
         clicked = await this._clickSendButton();
         if (clicked) break;
-        await this.page.waitForTimeout(50);
+        await this.page.waitForTimeout(100);
       }
 
       if (!clicked) {
         await this.page.keyboard.press('Enter');
       }
 
-      await this.page.waitForTimeout(200);
+      await this.page.waitForTimeout(400);
+
+      // Verify the text actually left the input (or the page navigated to /c/…)
+      let sent = true;
+      try {
+        const cur = await el.inputValue({ timeout: 1500 });
+        if (typeof cur === 'string' && cur.trim().length > 0) {
+          await this.page.keyboard.press('Enter');
+          await this.page.waitForTimeout(500);
+          const cur2 = await el.inputValue({ timeout: 1500 }).catch(() => '');
+          if (cur2 && cur2.trim().length > 0) sent = false;
+        }
+      } catch {
+        // Element detached — Arena navigated to the new chat URL = sent
+        sent = true;
+      }
+
+      if (!sent) {
+        const loggedIn = await this.isLoggedIn().catch(() => true);
+        const err = new Error(loggedIn
+          ? 'Arena did not accept the message — the input still contains the text after send.'
+          : 'Not logged into arena.ai — log in in the browser window, then retry.');
+        err.retryable = !loggedIn;
+        throw err;
+      }
     }, 'send message to Arena');
   }
 
@@ -145,9 +282,20 @@ class ArenaAdapter extends BaseAdapter {
       let lastText    = '';
       let stableStart = null;
       let lastIndicatorUpdate = 0;
+      let loginPoll   = 0;
 
       while (Date.now() - start < timeout) {
         const text = await this._extractLastMessage();
+
+        // Session can expire mid-response — bail out instead of spinning for 10 min
+        if (++loginPoll >= 10) {
+          loginPoll = 0;
+          if (!(await this.isLoggedIn().catch(() => true))) {
+            const err = new Error('Lost login to arena.ai — session expired. Log in again in the browser window.');
+            err.retryable = false;
+            throw err;
+          }
+        }
 
         this.thinkingTracker.update(text);
 
@@ -221,10 +369,12 @@ class ArenaAdapter extends BaseAdapter {
   getModelUrl()             { return this.config.ARENA_URL || ARENA_URL; }
 
   async _findInput() {
+    // Short per-selector timeout: with the corrected selectors the first one
+    // matches immediately; long waits here used to stall sends for minutes.
     for (const sel of this.selectors.chatInput) {
       try {
         const el = await this.page.waitForSelector(sel, {
-          timeout: this.config.HEALTH_CHECK_TIMEOUT || 45_000,
+          timeout: 4_000,
           state: 'visible',
         });
         if (!el) continue;
@@ -252,6 +402,9 @@ class ArenaAdapter extends BaseAdapter {
   async _getMessageCount() {
     return await this.page.evaluate(() => {
       const candidates = [
+        '[data-message-author-role]',
+        '[role="article"]',
+        'main article',
         '[class*="assistant"]',
         '[data-role="assistant"]',
         '[class*="ai-message"]',
@@ -296,6 +449,9 @@ class ArenaAdapter extends BaseAdapter {
       }
 
       const directSelectors = [
+        '[data-message-author-role="assistant"]',
+        '[role="article"]:last-of-type',
+        'main article:last-of-type',
         '[class*="assistant"] [class*="message-content"]',
         '[class*="assistant"] [class*="content"]',
         '[data-role="assistant"]',
@@ -323,6 +479,24 @@ class ArenaAdapter extends BaseAdapter {
         return (el.innerText || '').length > 20;
       });
       if (candidates.length > 0) return getFullText(candidates[candidates.length - 1]);
+
+      // Structural fallback: walk up from the composer and take the last
+      // sibling block that isn't the input area (works without class names).
+      const ta = document.querySelector('textarea, [contenteditable="true"]');
+      if (ta) {
+        let node = ta;
+        for (let i = 0; i < 10 && node.parentElement; i++) {
+          node = node.parentElement;
+          const kids = [...node.children];
+          if (kids.length >= 2) {
+            const blocks = kids.filter(k =>
+              !k.querySelector('textarea, [contenteditable="true"]') &&
+              (k.innerText || '').trim().length > 20
+            );
+            if (blocks.length > 0) return getFullText(blocks[blocks.length - 1]);
+          }
+        }
+      }
 
       return '';
     });

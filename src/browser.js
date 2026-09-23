@@ -38,8 +38,70 @@ class ForgeBrowser {
 
     logger.info(`Launching browser for ${config.MODEL} with persistent session...`);
 
+    await this._openContext(config.HEADLESS);
+    await this._navigate(getModelUrl(config.MODEL));
+
+    // Session may have expired since auth-done was written — reopen visible
+    // so the user can actually log in (login wall can't be solved headless).
+    if (config.HEADLESS && this.adapter && typeof this.adapter.isLoggedIn === 'function') {
+      const loggedIn = await this.adapter.isLoggedIn().catch(() => true);
+      if (!loggedIn) {
+        logger.warn('Saved session is no longer logged in — reopening browser visible for login...');
+        await this._openContext(false);
+        await this._navigate(getModelUrl(config.MODEL));
+      }
+    }
+
+    let loginRequired = false;
+
+    await runHealthCheckWithReAuth(this.page, this.adapter, config, async () => {
+      loginRequired = true;
+      this._printLoginBanner();
+      if (config.HEADLESS) {
+        logger.warn('Browser was hidden — reopening it visible for login...');
+        try { await this.context.close(); } catch {}
+        this._closed = false;
+        await this._openContext(false);
+        await this._navigate(getModelUrl(config.MODEL));
+      }
+      await this._waitForLogin();
+    });
+
+    if (loginRequired) {
+      // Only persist headless mode when login is actually confirmed
+      let verified = false;
+      if (this.adapter && typeof this.adapter.isLoggedIn === 'function') {
+        verified = await this.adapter.isLoggedIn().catch(() => false);
+      } else {
+        verified = true; // adapter has no detector — ENTER / auto-wait counts
+      }
+
+      if (verified) {
+        try {
+          if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
+          fs.writeFileSync(authDoneFile, JSON.stringify({ done: true, date: new Date().toISOString() }));
+          config.HEADLESS = true;
+          logger.success('Login saved! Browser will be hidden on next launch.');
+        } catch (e) {}
+      } else {
+        logger.warn('Login not confirmed — browser stays visible on next launch.');
+      }
+    }
+
+    logger.success('Browser ready!');
+  }
+
+  async _openContext(headless) {
+    const sessionDir = path.resolve(config.SESSION_DIR);
+    config.HEADLESS = headless;
+
+    if (this.context) {
+      try { await this.context.close(); } catch {}
+      this.context = null;
+    }
+
     this.context = await chromium.launchPersistentContext(sessionDir, {
-      headless      : config.HEADLESS,
+      headless      : headless,
       viewport      : { width: 1280, height: 900 },
       userAgent     : [
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
@@ -56,38 +118,14 @@ class ForgeBrowser {
       ignoreDefaultArgs: ['--enable-automation'],
     });
 
-    // Grab existing page or open a new one
-    const pages   = this.context.pages();
-    this.page     = pages.length > 0 ? pages[0] : await this.context.newPage();
+    const pages = this.context.pages();
+    this.page   = pages.length > 0 ? pages[0] : await this.context.newPage();
 
-    // Mask automation signals
     await this.page.addInitScript(() => {
       Object.defineProperty(navigator, 'webdriver', { get: () => false });
     });
 
-    // Initialize model adapter
     this.adapter = getAdapter(config.MODEL, this.page, config);
-
-    await this._navigate(getModelUrl(config.MODEL));
-
-    let loginRequired = false;
-
-    await runHealthCheckWithReAuth(this.page, this.adapter, config, async () => {
-      loginRequired = true;
-      this._printLoginBanner();
-      await this._waitForEnter();
-    });
-
-    if (loginRequired) {
-      try {
-        if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
-        fs.writeFileSync(authDoneFile, JSON.stringify({ done: true, date: new Date().toISOString() }));
-        config.HEADLESS = true;
-        logger.success('Login saved! Browser will be hidden on next launch.');
-      } catch (e) {}
-    }
-
-    logger.success('Browser ready!');
   }
 
   async close() {
@@ -117,10 +155,10 @@ class ForgeBrowser {
   _printLoginBanner() {
     console.log('');
     logger.warn('╔══════════════════════════════════════════════╗');
-    logger.warn('║  🔐  LOGIN REQUIRED                          ║');
+    logger.warn('║  LOGIN REQUIRED                              ║');
     logger.warn('║                                              ║');
-    logger.warn(`║  1. Log in to ${config.MODEL} in the browser    ║`);
-    logger.warn('║  2. Return here and press  ENTER  to continue║');
+    logger.warn(`║  1. Log in to ${config.MODEL} in the browser`.padEnd(47) + '║');
+    logger.warn('║  2. Detected automatically — or press ENTER  ║');
     logger.warn('╚══════════════════════════════════════════════╝');
     console.log('');
   }
@@ -146,6 +184,72 @@ class ForgeBrowser {
 
       stdin.on('data', handler);
     });
+  }
+
+  /**
+   * Wait for the user to finish logging in.
+   * Auto-detects via adapter.isLoggedIn() when available (polls every 2s);
+   * ENTER also skips the wait. Falls back to ENTER-only for adapters
+   * without a login detector. Needed because in IDE mode the process stdin
+   * is not interactive, so ENTER-only would hang forever.
+   */
+  async _waitForLogin() {
+    const timeoutMs = 15 * 60 * 1000;
+    const start = Date.now();
+    const canPoll = this.adapter && typeof this.adapter.isLoggedIn === 'function';
+
+    if (!canPoll) {
+      logger.dim('  Press ENTER after logging in...');
+      await this._waitForEnter();
+      return;
+    }
+
+    logger.dim('  Waiting for login — log in in the browser window (auto-detected)...');
+    if (logger.loginRequired) logger.loginRequired(config.MODEL);
+
+    // Optional ENTER skip (TTY only) racing against login polling
+    let stdinHandler   = null;
+    let restoreStdin   = null;
+    const enterPromise = new Promise(resolve => {
+      const stdin = process.stdin;
+      if (stdin && stdin.isTTY) {
+        const wasPaused = !stdin.readable;
+        stdin.setRawMode(false);
+        stdin.resume();
+        stdinHandler = chunk => {
+          const s = chunk.toString();
+          if (s.includes('\n') || s.includes('\r')) resolve('enter');
+        };
+        stdin.on('data', stdinHandler);
+        restoreStdin = () => {
+          try { stdin.setRawMode(true); } catch {}
+          if (wasPaused) { try { stdin.pause(); } catch {} }
+        };
+      }
+    });
+
+    try {
+      while (Date.now() - start < timeoutMs) {
+        try {
+          if (await this.adapter.isLoggedIn()) {
+            logger.success('Login detected!');
+            return;
+          }
+        } catch { /* transient evaluate errors — keep polling */ }
+
+        const winner = await Promise.race([
+          enterPromise,
+          new Promise(r => setTimeout(() => r('tick'), 2000)),
+        ]);
+        if (winner === 'enter') return;
+      }
+      logger.warn('Login wait timed out after 15 minutes — continuing anyway.');
+    } finally {
+      if (stdinHandler) {
+        try { process.stdin.removeListener('data', stdinHandler); } catch {}
+      }
+      if (restoreStdin) restoreStdin();
+    }
   }
 
   // ── Sending Messages ───────────────────────────────────────────────────────

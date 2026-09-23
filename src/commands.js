@@ -353,6 +353,15 @@ const BUILT_IN_COMMANDS = [
             timeout: config.BROWSER_TIMEOUT || 30000,
           });
           await agent.browser.page.waitForTimeout(2000);
+
+          let loginNote = '';
+          if (typeof newAdapter.isLoggedIn === 'function') {
+            const loggedIn = await newAdapter.isLoggedIn().catch(() => true);
+            if (!loggedIn) {
+              loginNote = `\n\nWARNING: Not logged in to ${modelName} yet —\nlog in in the browser window (auto-detected when done).`;
+            }
+          }
+          return `🌐 Switched to ${getModelDisplayName(modelName)}\n  Next task will use ${modelName}. Type /new to start a fresh chat.${loginNote}`;
         } catch (e) {
           config.MODEL = oldModel; // revert on failure
           return `❌ Failed to switch to ${modelName}: ${e.message}\nReverted to ${oldModel}.`;

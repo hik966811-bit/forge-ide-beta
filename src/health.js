@@ -77,6 +77,23 @@ async function runHealthCheck(page, adapter, config, options = {}) {
     ));
   } catch {}
 
+  // Check 4: Logged in — uses adapter.isLoggedIn() when available (Arena, …)
+  try {
+    if (adapter && typeof adapter.isLoggedIn === 'function') {
+      const ok = await adapter.isLoggedIn();
+      results.push(result(
+        ok ? STATUS.PASS : STATUS.FAIL,
+        'Logged in',
+        ok ? 'Session authenticated' : 'Not logged in — login wall detected',
+        ok ? null : 'Log in in the browser window (auto-detected when done)'
+      ));
+    } else {
+      results.push(result(STATUS.PASS, 'Logged in', 'Check skipped (no login detector)'));
+    }
+  } catch (e) {
+    results.push(result(STATUS.WARN, 'Logged in', 'Could not verify: ' + e.message));
+  }
+
   const passed  = results.filter(c => c.status === STATUS.PASS).length;
   const warned  = results.filter(c => c.status === STATUS.WARN).length;
   const failed  = results.filter(c => c.status === STATUS.FAIL).length;
