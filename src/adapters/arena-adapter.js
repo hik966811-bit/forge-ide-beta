@@ -454,19 +454,48 @@ class ArenaAdapter extends BaseAdapter {
         return result.trim();
       }
 
-      // Arena Tailwind DOM first: assistant replies are .prose blocks outside
-      // the right-aligned user bubble. Battle mode lays columns side-by-side,
-      // so pick the longest among the most recent blocks (live reply grows).
+      // Arena Tailwind DOM: assistant replies are .prose outside the
+      // right-aligned user bubble. After a send, the new reply sits BELOW
+      // the last user message — prefer that band so we never return an older
+      // greeting just because it is longer. Battle columns at the same
+      // vertical band: take the longest (the live one keeps growing).
       {
+        const isJunkHeader = t =>
+          t.length < 40 && /^[a-z0-9][a-z0-9._-]{2,40}$/i.test(t);
+
         const prose = [...document.querySelectorAll('.prose')].filter(el => {
           if (el.closest('[class*="items-end"]')) return false;
           const t = (el.innerText || '').trim();
-          return t.length > 10;
+          return t.length > 10 && !isJunkHeader(t);
         });
+
         if (prose.length > 0) {
-          const tail = prose.slice(-4);
-          let best = tail[0];
-          for (const el of tail) {
+          const users = [...document.querySelectorAll('[class*="items-end"]')];
+          let afterY = -Infinity;
+          if (users.length > 0) {
+            const r = users[users.length - 1].getBoundingClientRect();
+            afterY = r.bottom;
+          }
+
+          let below = prose.filter(el => {
+            try { return el.getBoundingClientRect().top >= afterY - 12; }
+            catch { return false; }
+          });
+          const pool = below.length > 0 ? below : prose;
+
+          let maxBottom = -Infinity;
+          for (const el of pool) {
+            try {
+              const b = el.getBoundingClientRect().bottom;
+              if (b > maxBottom) maxBottom = b;
+            } catch {}
+          }
+          const band = pool.filter(el => {
+            try { return el.getBoundingClientRect().bottom >= maxBottom - 48; }
+            catch { return false; }
+          });
+          let best = band[0] || pool[0];
+          for (const el of (band.length ? band : pool)) {
             if ((el.innerText || '').length > (best.innerText || '').length) best = el;
           }
           const t = getFullText(best);
