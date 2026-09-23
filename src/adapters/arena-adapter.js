@@ -411,10 +411,16 @@ class ArenaAdapter extends BaseAdapter {
         '[class*="bot-message"]',
         '[class*="message-row"]',
         '[class*="chat-message"]',
+        // Arena uses Tailwind — content lives in .prose; user bubbles are
+        // right-aligned (items-end) containers.
+        'main .prose',
+        '[class*="items-end"]',
       ];
       for (const sel of candidates) {
-        const els = document.querySelectorAll(sel);
-        if (els.length > 0) return els.length;
+        try {
+          const els = document.querySelectorAll(sel);
+          if (els.length > 0) return els.length;
+        } catch {}
       }
       return document.querySelectorAll('[class*="message"]').length;
     });
@@ -446,6 +452,26 @@ class ArenaAdapter extends BaseAdapter {
         }
         walk(el);
         return result.trim();
+      }
+
+      // Arena Tailwind DOM first: assistant replies are .prose blocks outside
+      // the right-aligned user bubble. Battle mode lays columns side-by-side,
+      // so pick the longest among the most recent blocks (live reply grows).
+      {
+        const prose = [...document.querySelectorAll('.prose')].filter(el => {
+          if (el.closest('[class*="items-end"]')) return false;
+          const t = (el.innerText || '').trim();
+          return t.length > 10;
+        });
+        if (prose.length > 0) {
+          const tail = prose.slice(-4);
+          let best = tail[0];
+          for (const el of tail) {
+            if ((el.innerText || '').length > (best.innerText || '').length) best = el;
+          }
+          const t = getFullText(best);
+          if (t.length > 10) return t;
+        }
       }
 
       const directSelectors = [
@@ -542,6 +568,14 @@ class ArenaAdapter extends BaseAdapter {
     return await this.page.evaluate(() => {
       const chats = [];
       const seen = new Set();
+      const cleanTitle = raw => {
+        let t = (raw || '').trim().replace(/\s+/g, ' ');
+        // Sidebar anchors glue vendor name + full first-prompt preview
+        t = t.replace(/^(Anthropic|OpenAI|Google|Meta|xAI|Mistral|DeepSeek)\s*/i, '');
+        if (/You are Forge Agent/i.test(t)) t = 'Forge Agent task';
+        if (t.length > 60) t = t.slice(0, 57).trimEnd() + '...';
+        return t || 'Arena chat';
+      };
       const selectors = [
         'a[href*="/c/"]',
         '[class*="sidebar"] a[href]',
@@ -557,8 +591,8 @@ class ArenaAdapter extends BaseAdapter {
             const href = a.getAttribute('href') || '';
             if (!href || seen.has(href)) return;
             if (!href.includes('/c/')) return;
-            const title = (a.textContent || '').trim().replace(/\s+/g, ' ');
-            if (!title || title.length > 200) return;
+            const title = cleanTitle(a.textContent || a.innerText || '');
+            if (!title) return;
             seen.add(href);
             const fullUrl = href.startsWith('http') ? href : location.origin + href;
             chats.push({ id: href, title, url: fullUrl });
@@ -569,12 +603,11 @@ class ArenaAdapter extends BaseAdapter {
         document.querySelectorAll('a[href]').forEach(a => {
           const href = a.getAttribute('href') || '';
           if (seen.has(href)) return;
-          const title = (a.textContent || '').trim().replace(/\s+/g, ' ');
-          if (!title || title.length < 2 || title.length > 200) return;
-          if (href.includes('/c/')) {
-            seen.add(href);
-            chats.push({ id: href, title, url: href.startsWith('http') ? href : location.origin + href });
-          }
+          if (!href.includes('/c/')) return;
+          const title = cleanTitle(a.textContent || a.innerText || '');
+          if (!title || title.length < 2) return;
+          seen.add(href);
+          chats.push({ id: href, title, url: href.startsWith('http') ? href : location.origin + href });
         });
       }
       return chats;
@@ -594,30 +627,114 @@ class ArenaAdapter extends BaseAdapter {
 
   async readChatMessages() {
     return await this.page.evaluate(() => {
-      const messages = [];
-      const selectors = [
-        '[class*="message"]',
-        '[class*="turn"]',
-        '[class*="chat-item"]',
-        '[data-role="user"]',
-        '[data-role="assistant"]',
-      ];
-      for (const sel of selectors) {
-        try {
-          const items = document.querySelectorAll(sel);
-          items.forEach(el => {
-            const text = (el.innerText || '').trim();
-            if (!text || text.length < 5) return;
-            const cls = el.className || '';
-            const isUser = cls.includes('user') || el.getAttribute('data-role') === 'user';
-            const isAssistant = cls.includes('assistant') || cls.includes('bot') || cls.includes('ai') || el.getAttribute('data-role') === 'assistant';
-            if (isUser || isAssistant) {
-              messages.push({ role: isUser ? 'user' : 'assistant', text: text.slice(0, 5000) });
-            }
-          });
-          if (messages.length > 0) break;
-        } catch {}
+      function getFullText(el) {
+        if (!el) return '';
+        let result = '';
+        function walk(node) {
+          if (node.nodeType === Node.TEXT_NODE) { result += node.textContent; return; }
+          if (node.nodeType !== Node.ELEMENT_NODE) return;
+          const tag = node.tagName.toLowerCase();
+          if (tag === 'pre') {
+            const codeEl = node.querySelector('code');
+            const lang = codeEl ? ((codeEl.className || '').match(/language-(\S+)/) || [])[1] || '' : '';
+            const body = codeEl ? codeEl.textContent : node.textContent;
+            result += '\n```' + lang + '\n' + body + '\n```\n';
+            return;
+          }
+          if (tag === 'code') {
+            const parentTag = node.parentElement && node.parentElement.tagName ? node.parentElement.tagName.toLowerCase() : '';
+            if (parentTag !== 'pre') result += '`' + node.textContent + '`';
+            return;
+          }
+          for (const child of node.childNodes) walk(child);
+          if (['p','div','li','br','h1','h2','h3','h4','h5','h6'].includes(tag)) result += '\n';
+        }
+        walk(el);
+        return result.trim();
       }
+
+      const messages = [];
+      const seen = new Set();
+
+      // Collect blocks: user bubbles (right-aligned items-end) and assistant
+      // content (.prose not inside items-end). Battle mode columns are not
+      // chronological in DOM order — sort by vertical position.
+      const nodes = [...document.querySelectorAll('[class*="items-end"], .prose')];
+      const found = [];
+      for (const el of nodes) {
+        // Prefer the outermost bubble for user msgs; for .prose skip if nested
+        // inside another .prose we will also visit.
+        const cls = (el.className || '').toString();
+        const isUserBubble = cls.includes('items-end');
+        const isProse = cls.includes('prose');
+
+        if (isProse && el.closest('[class*="items-end"]')) {
+          // prose inside a user bubble — handled by the bubble itself
+          continue;
+        }
+        if (isUserBubble && el.querySelector('[class*="items-end"]')) {
+          // nested items-end — outer one carries the full bubble text
+          continue;
+        }
+
+        // For user bubbles, take the raised inner bubble if present (drops
+        // empty layout wrappers); otherwise the bubble itself.
+        let target = el;
+        if (isUserBubble) {
+          const inner = el.querySelector('.bg-surface-raised, [class*="rounded-lg"]');
+          if (inner) target = inner;
+        }
+
+        const text = getFullText(target);
+        if (!text || text.length < 3) continue;
+
+        // Skip pure model-name sticky headers (claude-…, gpt-…, etc.)
+        if (/^[a-z0-9][a-z0-9._-]{2,40}$/i.test(text) && text.length < 40) continue;
+
+        const key = text.slice(0, 200);
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        let top = 0;
+        try { top = target.getBoundingClientRect().top + window.scrollY; } catch {}
+
+        found.push({
+          role: isUserBubble ? 'user' : 'assistant',
+          text: text.slice(0, 5000),
+          top,
+        });
+      }
+      found.sort((a, b) => a.top - b.top);
+      found.forEach(m => { delete m.top; });
+      messages.push(...found);
+
+      // Fallback: previous selector strategies if the Tailwind walk found nothing
+      if (messages.length === 0) {
+        const selectors = [
+          '[class*="message"]',
+          '[class*="turn"]',
+          '[class*="chat-item"]',
+          '[data-role="user"]',
+          '[data-role="assistant"]',
+        ];
+        for (const sel of selectors) {
+          try {
+            const items = document.querySelectorAll(sel);
+            items.forEach(el => {
+              const text = (el.innerText || '').trim();
+              if (!text || text.length < 5) return;
+              const c = el.className || '';
+              const isUser = c.includes('user') || el.getAttribute('data-role') === 'user';
+              const isAssistant = c.includes('assistant') || c.includes('bot') || c.includes('ai') || el.getAttribute('data-role') === 'assistant';
+              if (isUser || isAssistant) {
+                messages.push({ role: isUser ? 'user' : 'assistant', text: text.slice(0, 5000) });
+              }
+            });
+            if (messages.length > 0) break;
+          } catch {}
+        }
+      }
+
       return messages;
     });
   }
