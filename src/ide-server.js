@@ -113,6 +113,12 @@ class IDEServer {
       this.broadcast('login_required', { model: model || config.MODEL });
     };
 
+    const origCaptchaRequired = logger.captchaRequired.bind(logger);
+    logger.captchaRequired = (model) => {
+      origCaptchaRequired(model);
+      this.broadcast('captcha_required', { model: model || config.MODEL });
+    };
+
     // Also intercept console.log for final agent output
     const origConsoleLog = console.log.bind(console);
     const self = this;

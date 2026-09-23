@@ -1100,7 +1100,7 @@ function setupEventSource() {
       dom.agentThinkingCard.style.display = 'none';
       dom.agentThinkingCard.classList.remove('is-collapsed');
       if (dom.thinkingBody) dom.thinkingBody.textContent = '';
-      if (dom.thinkingTitle) dom.thinkingTitle.textContent = 'Размышление';
+      if (dom.thinkingTitle) dom.thinkingTitle.textContent = 'Thinking';
       if (dom.thinkingSpinner) dom.thinkingSpinner.style.display = 'inline-block';
       if (dom.thinkingReadCount) dom.thinkingReadCount.textContent = '0';
       if (dom.thinkingSearchCount) dom.thinkingSearchCount.textContent = '0';
@@ -1111,9 +1111,9 @@ function setupEventSource() {
     const data = JSON.parse(e.data);
     const secs = Math.round((data.elapsedMs || 0) / 1000);
     if (!data.elapsedMs) {
-      dom.activityTitle.textContent = 'Подключение к сессии Forge...';
+      dom.activityTitle.textContent = 'Connecting to Forge session...';
     } else {
-      dom.activityTitle.textContent = `Forge рассуждение (${secs}s)...`;
+      dom.activityTitle.textContent = `Forge thinking (${secs}s)...`;
     }
 
     if (data.readCount !== undefined && dom.thinkingReadCount) dom.thinkingReadCount.textContent = data.readCount;
@@ -1124,7 +1124,7 @@ function setupEventSource() {
       if (dom.agentThinkingCard) {
         dom.agentThinkingCard.style.display = 'block';
         if (dom.thinkingSpinner) dom.thinkingSpinner.style.display = 'inline-block';
-        if (dom.thinkingTitle) dom.thinkingTitle.textContent = `Размышление (${secs}s)`;
+        if (dom.thinkingTitle) dom.thinkingTitle.textContent = `Thinking (${secs}s)`;
         if (dom.thinkingBody) {
           dom.thinkingBody.textContent = data.thinkingText;
           dom.thinkingBody.scrollTop = dom.thinkingBody.scrollHeight;
@@ -1139,7 +1139,7 @@ function setupEventSource() {
     if (dom.agentThinkingCard && dom.agentThinkingCard.style.display !== 'none') {
       if (dom.thinkingSpinner) dom.thinkingSpinner.style.display = 'none';
       if (dom.thinkingTitle) {
-        dom.thinkingTitle.textContent = dom.thinkingTitle.textContent.replace('Размышление', 'Размышление завершено');
+        dom.thinkingTitle.textContent = dom.thinkingTitle.textContent.replace('Thinking', 'Thinking complete');
       }
       dom.agentThinkingCard.classList.add('is-collapsed');
     }
@@ -1155,7 +1155,7 @@ function setupEventSource() {
     if (dom.agentThinkingCard && dom.agentThinkingCard.style.display !== 'none') {
       if (dom.thinkingSpinner) dom.thinkingSpinner.style.display = 'none';
       if (dom.thinkingTitle) {
-        dom.thinkingTitle.textContent = dom.thinkingTitle.textContent.replace('Размышление', 'Размышление завершено');
+        dom.thinkingTitle.textContent = dom.thinkingTitle.textContent.replace('Thinking', 'Thinking complete');
       }
       dom.agentThinkingCard.classList.add('is-collapsed');
     }
@@ -1186,6 +1186,13 @@ function setupEventSource() {
     const model = data.model || 'the AI site';
     showToast(`Log in to ${model} in the browser window — Forge auto-detects when done`, 'error');
     appendChatMessage('assistant', `**Login required:** log in to \`${model}\` in the browser window that opened. Forge waits and continues automatically once you're logged in.`);
+  });
+
+  state.eventSource.addEventListener('captcha_required', (e) => {
+    const data = JSON.parse(e.data);
+    const model = data.model || 'the AI site';
+    showToast(`Security check (captcha) on ${model} — complete it in the browser window`, 'error');
+    appendChatMessage('assistant', `**Security check required:** a captcha / security verification appeared on \`${model}\`. Complete it in the browser window that opened. Forge waits and continues automatically once it's done.`);
   });
 
   state.eventSource.addEventListener('tree_changed', () => {

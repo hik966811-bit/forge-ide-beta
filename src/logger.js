@@ -129,6 +129,11 @@ const logger = {
     getTUI().warn(`Login required for ${model} — log in in the browser window.`);
   },
 
+  // ── Captcha / security check (hooked by ide-server to broadcast SSE) ─────
+  captchaRequired(model) {
+    getTUI().warn(`Security check (captcha) on ${model} — complete it in the browser window.`);
+  },
+
   // ── Error display ─────────────────────────────────────────────────────────
   renderError(err) {
     getTUI().renderError(err);

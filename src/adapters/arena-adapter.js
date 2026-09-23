@@ -189,6 +189,10 @@ class ArenaAdapter extends BaseAdapter {
       if (e.retryable === false) throw e;
     }
 
+    if (await this._isCaptchaShowing()) {
+      await this._waitForCaptchaClear(Date.now());
+    }
+
     await this._ensureDirectMode();
 
     await withSendRetry(async () => {
@@ -271,6 +275,9 @@ class ArenaAdapter extends BaseAdapter {
       let appeared = false;
 
       while (Date.now() - start < (this.config.APPEAR_TIMEOUT || 120_000)) {
+        if (await this._isCaptchaShowing()) {
+          await this._waitForCaptchaClear(start);
+        }
         const count = await this._getMessageCount();
         if (count > initialCount) { appeared = true; break; }
         await this.page.waitForTimeout(200);
@@ -283,8 +290,16 @@ class ArenaAdapter extends BaseAdapter {
       let stableStart = null;
       let lastIndicatorUpdate = 0;
       let loginPoll   = 0;
+      let captchaPoll = 0;
 
       while (Date.now() - start < timeout) {
+        if (++captchaPoll >= 5) {
+          captchaPoll = 0;
+          if (await this._isCaptchaShowing()) {
+            await this._waitForCaptchaClear(start);
+          }
+        }
+
         const text = await this._extractLastMessage();
 
         // Session can expire mid-response — bail out instead of spinning for 10 min
@@ -564,6 +579,72 @@ class ArenaAdapter extends BaseAdapter {
       .replace(/Thought for \d+ seconds?\s*/gi, '')
       .replace(/^(grok|claude|gpt|arena)[\w.\-]*\s*\n/i, '')
       .trim();
+  }
+
+  // ── Captcha / security verification ────────────────────────────────────────
+
+  async _isCaptchaShowing() {
+    try {
+      return await this.page.evaluate(() => {
+        const vis = el => {
+          if (!el) return false;
+          const s = window.getComputedStyle(el);
+          const r = el.getBoundingClientRect();
+          return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0'
+            && r.width > 0 && r.height > 0;
+        };
+        const selectors = [
+          'iframe[src*="recaptcha"]',
+          'iframe[src*="google.com/recaptcha"]',
+          'iframe[src*="hcaptcha"]',
+          'iframe[src*="turnstile"]',
+          '.g-recaptcha',
+          '[class*="cf-turnstile"]',
+          '[data-sitekey]',
+        ];
+        for (const sel of selectors) {
+          try {
+            if ([...document.querySelectorAll(sel)].some(vis)) return true;
+          } catch {}
+        }
+        const body = ((document.body && document.body.innerText) || '');
+        return /Security Verification|I'?m not a robot|I am not a robot|Я не робот|complete this quick security check|Подтвердите, что вы человек|подтвердите, что вы не робот/i.test(body);
+      });
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Captcha blocks headless progress — surface it in the IDE, reopen the
+   * browser visible if hidden, then poll until the user clears it.
+   */
+  async _waitForCaptchaClear(since) {
+    const timeoutMs = this.config.CAPTCHA_TIMEOUT || 5 * 60 * 1000;
+    const deadline = (since || Date.now()) + timeoutMs;
+    const model = (this.config && this.config.MODEL) || 'arena';
+
+    if (logger.captchaRequired) logger.captchaRequired(model);
+
+    if (typeof this.config.ensureBrowserVisible === 'function') {
+      try { await this.config.ensureBrowserVisible('captcha'); } catch {}
+    }
+
+    logger.dim('  Complete the security check (captcha) in the browser window...');
+
+    while (Date.now() < deadline) {
+      if (!(await this._isCaptchaShowing().catch(() => false))) {
+        logger.success('Security check cleared — continuing...');
+        return true;
+      }
+      await this.page.waitForTimeout(1500);
+    }
+
+    const err = new Error(
+      'Security check (captcha) on arena.ai was not completed in time — finish it in the browser window and retry.'
+    );
+    err.retryable = false;
+    throw err;
   }
 
   async _isGenerating() {

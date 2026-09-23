@@ -103,6 +103,11 @@ class ForgeBrowser {
     this.context = await chromium.launchPersistentContext(sessionDir, {
       headless      : headless,
       viewport      : { width: 1280, height: 900 },
+      locale        : 'en-US',
+      timezoneId    : 'UTC',
+      extraHTTPHeaders: {
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
       userAgent     : [
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
         'AppleWebKit/537.36 (KHTML, like Gecko)',
@@ -114,6 +119,7 @@ class ForgeBrowser {
         '--disable-default-apps',
         '--no-sandbox',
         '--disable-setuid-sandbox',
+        '--lang=en-US',
       ],
       ignoreDefaultArgs: ['--enable-automation'],
     });
@@ -123,9 +129,21 @@ class ForgeBrowser {
 
     await this.page.addInitScript(() => {
       Object.defineProperty(navigator, 'webdriver', { get: () => false });
+      Object.defineProperty(navigator, 'language',  { get: () => 'en-US' });
+      Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
     });
 
     this.adapter = getAdapter(config.MODEL, this.page, config);
+
+    // Adapters call this when a captcha/security check blocks the page
+    config.ensureBrowserVisible = async (reason) => {
+      if (!config.HEADLESS) return;
+      logger.warn(`Browser was hidden — reopening visible (${reason || 'captcha'})...`);
+      try { await this.context.close(); } catch {}
+      this._closed = false;
+      await this._openContext(false);
+      await this._navigate(getModelUrl(config.MODEL));
+    };
   }
 
   async close() {
