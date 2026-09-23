@@ -166,9 +166,12 @@ function buildToolDocumentation() {
     'Search': ['search_in_files','search_codebase','find_files'],
     'Shell': ['run_command','start_process','stop_process','list_processes','read_process_logs'],
     'Git': ['git_status','git_log','git_diff','git_branches','git_show','git_blame'],
-    'Development': ['run_tests','install_package','diff_files','patch_file'],
+    'Development': ['run_tests','install_package','diff_files','patch_file','read_url'],
     'Environment': ['read_env','set_env_var','delete_env_var','list_env_files','check_env_vars'],
+    'Display & System': ['show_info','take_screenshot','read_clipboard','write_clipboard'],
   };
+
+  const listed = new Set();
 
   for (const [category, toolNames] of Object.entries(categories)) {
     const available = toolNames.filter(name => tools[name]);
@@ -176,8 +179,24 @@ function buildToolDocumentation() {
 
     lines.push(`${category}:`);
     available.forEach(name => {
+      listed.add(name);
       const tool = tools[name];
       if (!tool) return;
+      const params = Object.entries(tool.parameters || {})
+        .map(([k, v]) => `${k}: ${v.type}${v.required ? '' : '?'}`)
+        .join(', ');
+      lines.push(`  ${name}(${params})`);
+      lines.push(`    ${tool.description || ''}`);
+    });
+    lines.push('');
+  }
+
+  // Any tools not in a category (plugins, MCP, etc.)
+  const uncategorized = Object.keys(tools).filter(name => !listed.has(name) && !tools[name]._isMCP);
+  if (uncategorized.length > 0) {
+    lines.push('Other Tools:');
+    uncategorized.forEach(name => {
+      const tool = tools[name];
       const params = Object.entries(tool.parameters || {})
         .map(([k, v]) => `${k}: ${v.type}${v.required ? '' : '?'}`)
         .join(', ');

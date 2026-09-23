@@ -323,7 +323,7 @@ const BUILT_IN_COMMANDS = [
     name: 'model',
     aliases: ['m', 'switch'],
     description: 'Switch AI model for this session',
-    usage: '/model <deepseek|chatgpt|gemini>',
+    usage: '/model <deepseek|gemini|arena>',
     category: 'Model',
     requiresArg: true,
     execute: async ({ arg, config, agent, logger }) => {

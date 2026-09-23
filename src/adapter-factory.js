@@ -1,7 +1,7 @@
 // src/adapter-factory.js — Factory for model adapters
 'use strict';
 
-const SUPPORTED_MODELS = ['deepseek', 'gemini'];
+const SUPPORTED_MODELS = ['deepseek', 'gemini', 'arena'];
 
 /**
  * Get an adapter instance for the specified model.
@@ -28,9 +28,10 @@ function getAdapter(modelName, page, config) {
         'ChatGPT adapter is currently disabled.\n' +
         'ChatGPT\'s web UI has aggressive bot detection that causes\n' +
         'unreliable tool call execution.\n\n' +
-        'Please use DeepSeek (default) or Gemini instead:\n' +
+        'Please use DeepSeek (default), Gemini, or Arena instead:\n' +
         '  forge-agent --model=deepseek "your task"\n' +
-        '  forge-agent --model=gemini "your task"'
+        '  forge-agent --model=gemini "your task"\n' +
+        '  forge-agent --model=arena "your task"'
       );
     }
     case 'gemini':
@@ -38,6 +39,11 @@ function getAdapter(modelName, page, config) {
     case 'bard': {
       const GeminiAdapter = require('./adapters/gemini-adapter');
       return new GeminiAdapter(page, config);
+    }
+    case 'arena':
+    case 'arena.ai': {
+      const ArenaAdapter = require('./adapters/arena-adapter');
+      return new ArenaAdapter(page, config);
     }
     default:
       throw new Error(
@@ -56,6 +62,7 @@ function getModelUrl(modelName) {
   const urls = {
     deepseek: 'https://chat.deepseek.com',
     gemini  : 'https://gemini.google.com/app',
+    arena   : 'https://arena.ai',
   };
   return urls[name] || urls.deepseek;
 }
@@ -67,6 +74,7 @@ function getModelDisplayName(modelName) {
   const names = {
     deepseek: 'DeepSeek',
     gemini  : 'Gemini',
+    arena   : 'Arena',
   };
   return names[(modelName || '').toLowerCase()] || modelName;
 }

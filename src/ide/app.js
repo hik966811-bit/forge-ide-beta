@@ -1710,6 +1710,7 @@ function renderChatHistory() {
 
   loadDeepSeekChats(list, gen);
   loadGeminiChats(list, gen);
+  loadArenaChats(list, gen);
 }
 
 async function loadDeepSeekChats(list, gen) {
@@ -1868,11 +1869,90 @@ async function openGeminiChat(chatUrl) {
     });
     dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
   } catch (err) {
-    dom.chatMessages.innerHTML = `<div style="text-align:center;padding:20px;color:#f44;">Error: ${escapeHtml(err.message)}</div>`;
+      dom.chatMessages.innerHTML = `<div style="text-align:center;padding:20px;color:#f44;">Error: ${escapeHtml(err.message)}</div>`;
+    }
   }
-}
 
-function renderChatMessages() {
+  async function loadArenaChats(list, gen) {
+    try {
+      const res = await fetch('/api/arena/chats');
+      if (!res.ok || gen !== _chatHistoryGeneration) return;
+      const data = await res.json();
+      const arChats = data.chats || [];
+      if (arChats.length === 0 || gen !== _chatHistoryGeneration) return;
+
+      const section = document.createElement('div');
+      section.className = 'chat-history-section-title';
+      section.textContent = 'Arena Chats';
+      section.style.cssText = 'font-size:10px;color:#666;padding:4px 10px;margin-top:8px;text-transform:uppercase;letter-spacing:0.5px;border-top:1px solid #222;padding-top:8px;';
+      list.appendChild(section);
+
+      arChats.forEach(chat => {
+        const item = document.createElement('div');
+        item.className = 'chat-history-item';
+        item.innerHTML = `
+          <div class="chat-history-item-icon" style="color:#f97316;">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+          </div>
+          <div class="chat-history-item-info">
+            <div class="chat-history-item-title">${escapeHtml(chat.title)}</div>
+            <div class="chat-history-item-time" style="color:#f97316;">Arena</div>
+          </div>
+        `;
+        item.addEventListener('click', () => openArenaChat(chat.url));
+        list.appendChild(item);
+      });
+    } catch (err) {
+      console.warn('[Forge] Failed to load Arena chats:', err.message);
+    }
+  }
+
+  async function openArenaChat(chatUrl) {
+    showToast('Opening Arena chat...', 'info');
+    dom.chatMessages.innerHTML = '<div style="text-align:center;padding:20px;color:#666;">Loading Arena chat...</div>';
+    const historyPanel = document.getElementById('chatHistoryPanel');
+    if (historyPanel) historyPanel.style.display = 'none';
+
+    try {
+      const res = await fetch('/api/arena/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: chatUrl }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error('Failed to navigate');
+
+      await new Promise(r => setTimeout(r, 1000));
+
+      const msgRes = await fetch('/api/arena/messages');
+      const msgData = await msgRes.json();
+      const messages = msgData.messages || [];
+
+      dom.chatMessages.innerHTML = '';
+      if (messages.length === 0) {
+        dom.chatMessages.innerHTML = '<div style="text-align:center;padding:20px;color:#666;">No messages found in this chat.</div>';
+        return;
+      }
+
+      messages.forEach(msg => {
+        const card = document.createElement('div');
+        card.className = `chat-msg msg-${msg.role}`;
+        const contentHtml = msg.role === 'assistant'
+          ? `<div class="msg-bubble markdown-body">${renderMarkdown(msg.text)}</div>`
+          : `<div class="msg-bubble">${escapeHtml(msg.text)}</div>`;
+        card.innerHTML = `
+          ${contentHtml}
+          <div class="msg-meta">${msg.role === 'assistant' ? 'Arena · ' : 'You · '}${new Date().toLocaleTimeString()}</div>
+        `;
+        dom.chatMessages.appendChild(card);
+      });
+      dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
+    } catch (err) {
+      dom.chatMessages.innerHTML = `<div style="text-align:center;padding:20px;color:#f44;">Error: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function renderChatMessages() {
   const id = getActiveChatId();
   if (!id) return;
   const chats = loadAllChats();

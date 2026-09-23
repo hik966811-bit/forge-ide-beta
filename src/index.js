@@ -262,7 +262,7 @@ ${c('1;36', 'QUICK START')}
 ${c('1;36', 'CORE OPTIONS')}
   -i, --interactive      Multiple tasks with shared AI context
       --dir <path>       Set working directory (default: current dir)
-      --model <name>     AI model: deepseek (default) | gemini
+      --model <name>     AI model: deepseek (default) | gemini | arena
       --profile <name>   Profile: default | backend | frontend |
                          data-science | devops
       --plan             Show execution plan before acting
@@ -334,7 +334,7 @@ ${c('1;36', 'DEBUGGING')}
       --save-log         Save full conversation to disk
       --calibrate        Auto-detect browser selectors
       --test-model       Test current model selectors
-      --test-model=<n>   Test: deepseek | gemini
+      --test-model=<n>   Test: deepseek | gemini | arena
 
 ${c('1;36', 'SHELL COMPLETIONS')}
       --completion-bash  Print bash completion script

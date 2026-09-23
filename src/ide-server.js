@@ -702,6 +702,63 @@ class IDEServer {
         return;
       }
 
+      if (pathname === '/api/arena/chats' && req.method === 'GET') {
+        if (!this.agent || !this.agent.browser || !this.agent.browser.adapter) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ chats: [] }));
+          return;
+        }
+        try {
+          const chats = await this.agent.browser.listChats();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ chats }));
+        } catch (err) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ chats: [], error: err.message }));
+        }
+        return;
+      }
+
+      if (pathname === '/api/arena/open' && req.method === 'POST') {
+        const body = await this.readJsonBody(req);
+        if (!body.url) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing url' }));
+          return;
+        }
+        if (!this.agent || !this.agent.browser || !this.agent.browser.adapter) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Browser not initialized' }));
+          return;
+        }
+        try {
+          const ok = await this.agent.browser.navigateToChat(body.url);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: ok }));
+        } catch (err) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: err.message }));
+        }
+        return;
+      }
+
+      if (pathname === '/api/arena/messages' && req.method === 'GET') {
+        if (!this.agent || !this.agent.browser || !this.agent.browser.adapter) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ messages: [] }));
+          return;
+        }
+        try {
+          const messages = await this.agent.browser.readChatMessages();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ messages }));
+        } catch (err) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ messages: [], error: err.message }));
+        }
+        return;
+      }
+
       if (pathname === '/api/terminal/exec' && req.method === 'POST') {
         const body = await this.readJsonBody(req);
         const command = body.command;

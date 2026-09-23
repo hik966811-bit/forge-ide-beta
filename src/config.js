@@ -12,6 +12,7 @@ const DEFAULTS = {
   // AI Model
   MODEL              : 'deepseek',
   DEEPSEEK_URL       : 'https://chat.deepseek.com',
+  ARENA_URL          : 'https://arena.ai',
 
   // Timing (tuned for performance)
   RESPONSE_TIMEOUT   : 600_000,   // 10 min total wait
@@ -135,7 +136,7 @@ function validateConfigValue(key, value) {
     SEND_DELAY        : v => typeof v === 'number' && v >= 100 && v <= 5000,
     GENERATION_POLL   : v => typeof v === 'number' && v >= 100 && v <= 5000,
     TOOL_TIMEOUT      : v => typeof v === 'number' && v >= 1000,
-    MODEL             : v => ['deepseek','gemini'].includes(String(v).toLowerCase()),
+    MODEL             : v => ['deepseek','gemini','arena'].includes(String(v).toLowerCase()),
     ACTIVE_PROFILE    : v => ['default','backend','frontend','data-science','devops'].includes(v),
     OUTPUT_FORMAT     : v => ['text','markdown','json','json-raw','minimal','silent'].includes(v),
     HEADLESS          : v => typeof v === 'boolean',

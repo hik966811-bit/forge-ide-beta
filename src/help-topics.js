@@ -228,6 +228,7 @@ const TOPICS = {
   ${c('cyan', 'forge-agent --model=deepseek "your task"')}    # default, recommended
   ${c('cyan', 'forge-agent --model=chatgpt "your task"')}     # requires chatgpt.com login
   ${c('cyan', 'forge-agent --model=gemini "your task"')}      # requires gemini.google.com login
+  ${c('cyan', 'forge-agent --model=arena "your task"')}       # requires arena.ai login
 
   ${cb('white', 'SET DEFAULT MODEL (in config):')}
   ${cb('white', '{ "MODEL": "chatgpt" }')}
