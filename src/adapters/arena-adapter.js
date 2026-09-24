@@ -734,39 +734,28 @@ class ArenaAdapter extends BaseAdapter {
 
   async navigateToChat(chatUrl) {
     try {
-      // Saved chats are bare /c/… links — Arena then opens whatever model
-      // was last used (or Battle). Re-apply the currently selected Direct
-      // model so opening a history item stays on chatgpt/claude/grok/…
-      const url = this._withSelectedModel(chatUrl);
-      await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      // Open the saved /c/… URL exactly as Arena stored it. Query params
+      // like model_a/mode break conversation links ("Session not found").
+      await this.page.goto(chatUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await this.page.waitForTimeout(2000);
-      this._modeChecked = false; // re-check mode after every history open
+
+      // If Arena bounced us home, the link is stale — start a fresh chat.
+      const cur = this.page.url();
+      if (!/\/c\//.test(cur) && /arena\.ai/i.test(cur)) {
+        logger.warn('Saved Arena chat URL was rejected — opening Arena home instead');
+        await this.page.goto(this.getModelUrl(), {
+          waitUntil: 'domcontentloaded',
+          timeout: this.config.BROWSER_TIMEOUT || 30_000,
+        });
+        await this.page.waitForTimeout(1500);
+      }
+
+      this._modeChecked = false;
       await this._ensureDirectMode();
       return true;
     } catch (err) {
       logger.warn(`Failed to navigate to Arena chat: ${err.message}`);
       return false;
-    }
-  }
-
-  /**
-   * Append model_a / mode=direct from the active preset onto a chat URL.
-   * Leaves non-Direct arena URLs (generic Battle home) untouched.
-   */
-  _withSelectedModel(chatUrl) {
-    try {
-      const base = this.getModelUrl();
-      if (!base || base === ARENA_URL) return chatUrl;
-      const modelUrl = new URL(base);
-      const modelA = modelUrl.searchParams.get('model_a');
-      if (!modelA) return chatUrl;
-
-      const target = new URL(chatUrl, 'https://arena.ai');
-      target.searchParams.set('model_a', modelA);
-      if (!target.searchParams.has('mode')) target.searchParams.set('mode', 'direct');
-      return target.toString();
-    } catch {
-      return chatUrl;
     }
   }
 
