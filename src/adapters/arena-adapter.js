@@ -381,7 +381,15 @@ class ArenaAdapter extends BaseAdapter {
   _getStopSelectors()       { return this.selectors.stopButton; }
   _getNewChatSelectors()    { return this.selectors.newChat; }
   _getResponseSelectors()   { return this.selectors.messageContainer; }
-  getModelUrl()             { return this.config.ARENA_URL || ARENA_URL; }
+  getModelUrl() {
+    if (this.config && this.config.ARENA_URL) return this.config.ARENA_URL;
+    try {
+      const { isArenaModel, getArenaUrl } = require('../arena-models');
+      const m = (this.config && this.config.MODEL) || 'arena';
+      if (isArenaModel(m)) return getArenaUrl(m);
+    } catch {}
+    return ARENA_URL;
+  }
 
   async _findInput() {
     // Short per-selector timeout: with the corrected selectors the first one

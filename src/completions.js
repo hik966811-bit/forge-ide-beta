@@ -4,7 +4,7 @@
 const ALL_FLAGS = [
   { flag: '--interactive',      short: '-i',  description: 'Multiple tasks with shared AI context',    takesValue: false },
   { flag: '--dir',              short: '-d',  description: 'Set working directory',                    takesValue: true,  valueHint: 'DIR' },
-  { flag: '--model',            short: '-m',  description: 'AI model to use',                          takesValue: true,  valueHint: 'MODEL', values: ['deepseek', 'chatgpt', 'gemini', 'arena'] },
+  { flag: '--model',            short: '-m',  description: 'AI model to use',                          takesValue: true,  valueHint: 'MODEL', values: ['deepseek', 'gemini', 'arena', 'chatgpt', 'claude', 'qwen', 'minimax', 'glm', 'grok'] },
   { flag: '--profile',          short: null,  description: 'Agent profile',                            takesValue: true,  valueHint: 'PROFILE', values: ['default', 'backend', 'frontend', 'data-science', 'devops'] },
   { flag: '--plan',             short: null,  description: 'Show plan before executing',               takesValue: false },
   { flag: '--think',            short: null,  description: 'Show R1 reasoning blocks',                 takesValue: false },
@@ -58,7 +58,7 @@ _forge_completions() {
   prev="\${COMP_WORDS[COMP_CWORD-1]}"
 
   case "$prev" in
-    --model)     COMPREPLY=( $(compgen -W "deepseek chatgpt gemini arena" -- "$cur") ); return 0 ;;
+    --model)     COMPREPLY=( $(compgen -W "deepseek gemini arena chatgpt claude qwen minimax glm grok" -- "$cur") ); return 0 ;;
     --profile)   COMPREPLY=( $(compgen -W "default backend frontend data-science devops" -- "$cur") ); return 0 ;;
     --format)    COMPREPLY=( $(compgen -W "text markdown json json-raw minimal silent" -- "$cur") ); return 0 ;;
     --template)  COMPREPLY=( $(compgen -W "${templates}" -- "$cur") ); return 0 ;;

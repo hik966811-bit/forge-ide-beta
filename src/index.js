@@ -262,7 +262,8 @@ ${c('1;36', 'QUICK START')}
 ${c('1;36', 'CORE OPTIONS')}
   -i, --interactive      Multiple tasks with shared AI context
       --dir <path>       Set working directory (default: current dir)
-      --model <name>     AI model: deepseek (default) | gemini | arena
+      --model <name>     AI model: deepseek (default) | gemini | arena |
+                         chatgpt | claude | qwen | minimax | glm | grok
       --profile <name>   Profile: default | backend | frontend |
                          data-science | devops
       --plan             Show execution plan before acting

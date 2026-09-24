@@ -602,11 +602,12 @@ class IDEServer {
 
       // Chat history is only valid for the active model — all three endpoints
       // share one browser adapter, so without this gate every section shows
-      // the same (wrong provider's) chats.
+      // the same (wrong provider's) chats. Arena Direct presets all report as 'arena'.
+      const { getProvider } = require('./adapter-factory');
       if ((pathname === '/api/deepseek/chats' || pathname === '/api/gemini/chats' || pathname === '/api/arena/chats')
           && req.method === 'GET') {
         const want = pathname.split('/')[2]; // deepseek | gemini | arena
-        if ((config.MODEL || 'deepseek') !== want || !this.agent || !this.agent.browser || !this.agent.browser.adapter) {
+        if (getProvider(config.MODEL) !== want || !this.agent || !this.agent.browser || !this.agent.browser.adapter) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ chats: [] }));
           return;
@@ -631,7 +632,7 @@ class IDEServer {
           res.end(JSON.stringify({ error: 'Missing url' }));
           return;
         }
-        if ((config.MODEL || 'deepseek') !== want || !this.agent || !this.agent.browser || !this.agent.browser.adapter) {
+        if (getProvider(config.MODEL) !== want || !this.agent || !this.agent.browser || !this.agent.browser.adapter) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: `Switch model to ${want} to open its chats` }));
           return;
@@ -650,7 +651,7 @@ class IDEServer {
       if ((pathname === '/api/deepseek/messages' || pathname === '/api/gemini/messages' || pathname === '/api/arena/messages')
           && req.method === 'GET') {
         const want = pathname.split('/')[2];
-        if ((config.MODEL || 'deepseek') !== want || !this.agent || !this.agent.browser || !this.agent.browser.adapter) {
+        if (getProvider(config.MODEL) !== want || !this.agent || !this.agent.browser || !this.agent.browser.adapter) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ messages: [] }));
           return;

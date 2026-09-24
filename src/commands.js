@@ -323,7 +323,7 @@ const BUILT_IN_COMMANDS = [
     name: 'model',
     aliases: ['m', 'switch'],
     description: 'Switch AI model for this session',
-    usage: '/model <deepseek|gemini|arena>',
+    usage: '/model <deepseek|gemini|arena|chatgpt|claude|qwen|minimax|glm|grok>',
     category: 'Model',
     requiresArg: true,
     execute: async ({ arg, config, agent, logger }) => {
@@ -334,12 +334,17 @@ const BUILT_IN_COMMANDS = [
         return [
           `Unknown model: "${modelName}"`,
           `Available: ${SUPPORTED_MODELS.join(', ')}`,
-          'Usage: /model deepseek',
+          'Usage: /model deepseek  or  /model chatgpt',
         ].join('\n');
       }
 
       const oldModel = config.MODEL || 'deepseek';
+      const oldArenaUrl = config.ARENA_URL;
       config.MODEL   = modelName;
+      try {
+        const { isArenaModel, getArenaUrl } = require('./adapter-factory');
+        if (isArenaModel(modelName)) config.ARENA_URL = getArenaUrl(modelName);
+      } catch {}
 
       // If agent has a browser, attempt to switch adapter
       if (agent && agent.browser && agent.browser.page) {
@@ -364,7 +369,8 @@ const BUILT_IN_COMMANDS = [
           return `🌐 Switched to ${getModelDisplayName(modelName)}\n  Next task will use ${modelName}. Type /new to start a fresh chat.${loginNote}`;
         } catch (e) {
           config.MODEL = oldModel; // revert on failure
-          return `❌ Failed to switch to ${modelName}: ${e.message}\nReverted to ${oldModel}.`;
+          config.ARENA_URL = oldArenaUrl;
+          return `Failed to switch to ${modelName}: ${e.message}\nReverted to ${oldModel}.`;
         }
       }
 

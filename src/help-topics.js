@@ -226,9 +226,14 @@ const TOPICS = {
 
   ${cb('white', 'SWITCH MODEL:')}
   ${c('cyan', 'forge-agent --model=deepseek "your task"')}    # default, recommended
-  ${c('cyan', 'forge-agent --model=chatgpt "your task"')}     # requires chatgpt.com login
   ${c('cyan', 'forge-agent --model=gemini "your task"')}      # requires gemini.google.com login
   ${c('cyan', 'forge-agent --model=arena "your task"')}       # requires arena.ai login
+  ${c('cyan', 'forge-agent --model=chatgpt "your task"')}     # Arena Direct — GPT-5.5
+  ${c('cyan', 'forge-agent --model=claude "your task"')}      # Arena Direct — Claude Sonnet
+  ${c('cyan', 'forge-agent --model=qwen "your task"')}        # Arena Direct — Qwen
+  ${c('cyan', 'forge-agent --model=minimax "your task"')}     # Arena Direct — MiniMax
+  ${c('cyan', 'forge-agent --model=glm "your task"')}          # Arena Direct — GLM
+  ${c('cyan', 'forge-agent --model=grok "your task"')}        # Arena Direct — Grok
 
   ${cb('white', 'SET DEFAULT MODEL (in config):')}
   ${cb('white', '{ "MODEL": "chatgpt" }')}

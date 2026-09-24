@@ -29,7 +29,7 @@ function generateManPage() {
       'Set the working directory (default: current directory).',
       '.TP',
       '\\fB--model \\fIname\\fR',
-      'Select AI backend: deepseek (default), chatgpt, gemini, or arena.',
+      'Select AI backend: deepseek (default), gemini, arena, or Arena Direct presets (chatgpt, claude, qwen, minimax, glm, grok).',
       '.TP',
       '\\fB--profile \\fIname\\fR',
       'Activate a specific agent profile (backend, frontend, devops, etc.).',
