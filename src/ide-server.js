@@ -639,8 +639,9 @@ class IDEServer {
         }
         try {
           const ok = await this.agent.browser.navigateToChat(body.url);
+          const { getModelDisplayName } = require('./adapter-factory');
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: ok }));
+          res.end(JSON.stringify({ success: ok, model: getModelDisplayName(config.MODEL) }));
         } catch (err) {
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: err.message }));

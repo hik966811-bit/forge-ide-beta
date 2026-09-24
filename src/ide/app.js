@@ -1942,6 +1942,7 @@ async function openGeminiChat(chatUrl) {
       const msgData = await msgRes.json();
       const messages = msgData.messages || [];
 
+      const modelLabel = (data.model || 'Arena');
       dom.chatMessages.innerHTML = '';
       if (messages.length === 0) {
         dom.chatMessages.innerHTML = '<div style="text-align:center;padding:20px;color:#666;">No messages found in this chat.</div>';
@@ -1956,7 +1957,7 @@ async function openGeminiChat(chatUrl) {
           : `<div class="msg-bubble">${escapeHtml(msg.text)}</div>`;
         card.innerHTML = `
           ${contentHtml}
-          <div class="msg-meta">${msg.role === 'assistant' ? 'Arena · ' : 'You · '}${new Date().toLocaleTimeString()}</div>
+          <div class="msg-meta">${msg.role === 'assistant' ? escapeHtml(modelLabel) + ' · ' : 'You · '}${new Date().toLocaleTimeString()}</div>
         `;
         dom.chatMessages.appendChild(card);
       });

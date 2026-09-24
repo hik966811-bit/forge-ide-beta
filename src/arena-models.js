@@ -54,4 +54,27 @@ function getArenaUrl(name) {
   return info ? info.url : 'https://arena.ai';
 }
 
-module.exports = { ARENA_MODELS, isArenaModel, getArenaModelInfo, getArenaUrl };
+/**
+ * Rewrite a saved Arena chat URL (/c/…) so it opens with the given model
+ * in Direct mode. Generic arena home URLs are returned unchanged.
+ */
+function withArenaModel(chatUrl, modelName) {
+  try {
+    const info = getArenaModelInfo(modelName);
+    if (!info) return chatUrl;
+    const target = new URL(chatUrl, 'https://arena.ai');
+    target.searchParams.set('model_a', info.modelId);
+    if (!target.searchParams.has('mode')) target.searchParams.set('mode', 'direct');
+    return target.toString();
+  } catch {
+    return chatUrl;
+  }
+}
+
+module.exports = {
+  ARENA_MODELS,
+  isArenaModel,
+  getArenaModelInfo,
+  getArenaUrl,
+  withArenaModel,
+};
