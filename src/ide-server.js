@@ -271,19 +271,58 @@ class IDEServer {
   }
 
   async _initBrowserInBackground() {
-    try {
-      if (!this.agent) {
-        const ForgeAgent = require('./agent');
-        this.agent = new ForgeAgent();
+    if (this._browserInitPromise) return this._browserInitPromise;
+    this._browserInitPromise = (async () => {
+      try {
+        if (!this.agent) {
+          const ForgeAgent = require('./agent');
+          this.agent = new ForgeAgent();
+        }
+        if (!this.agent.browser || !this.agent.browser.adapter) {
+          logger.info('Pre-launching browser for chat history...');
+          await this.agent.init();
+          logger.info('Browser ready for chat history.');
+        }
+        return { ok: true };
+      } catch (err) {
+        logger.warn('Background browser init failed (will retry on first task): ' + err.message);
+        this._browserInitPromise = null; // allow retry
+        return { ok: false, error: err.message };
       }
-      if (!this.agent.browser || !this.agent.browser.adapter) {
-        logger.info('Pre-launching browser for chat history...');
-        await this.agent.init();
-        logger.info('Browser ready for chat history.');
-      }
-    } catch (err) {
-      logger.warn('Background browser init failed (will retry on first task): ' + err.message);
+    })();
+    return this._browserInitPromise;
+  }
+
+  /**
+   * Ensure the active model's browser is on its home page before listing chats.
+   * Returns null when ready, or a short reason string.
+   */
+  async _ensureBrowserForHistory(want) {
+    const { getProvider, getModelUrl } = require('./adapter-factory');
+    if (getProvider(config.MODEL) !== want) {
+      return `active model is ${getProvider(config.MODEL)}, not ${want}`;
     }
+    if (!this.agent || !this.agent.browser || !this.agent.browser.adapter) {
+      await this._initBrowserInBackground();
+    }
+    if (!this.agent || !this.agent.browser || !this.agent.browser.adapter) {
+      return 'browser starting — open history again in a few seconds';
+    }
+    try {
+      const page = this.agent.browser.page;
+      if (page && !page.isClosed()) {
+        const wantOrigin = new URL(getModelUrl(config.MODEL)).origin;
+        const cur = await page.evaluate(() => location.origin).catch(() => null);
+        if (cur && cur !== wantOrigin) {
+          await page.goto(getModelUrl(config.MODEL), {
+            waitUntil: 'domcontentloaded',
+            timeout: config.BROWSER_TIMEOUT || 30000,
+          });
+          await page.waitForTimeout(1500);
+        }
+      }
+    } catch { /* listing still works on whatever page we have */ }
+    return null;
   }
 
   async _initMCPInBackground() {
@@ -603,22 +642,22 @@ class IDEServer {
       // Chat history is only valid for the active model — all three endpoints
       // share one browser adapter, so without this gate every section shows
       // the same (wrong provider's) chats. Arena Direct presets all report as 'arena'.
-      const { getProvider } = require('./adapter-factory');
       if ((pathname === '/api/deepseek/chats' || pathname === '/api/gemini/chats' || pathname === '/api/arena/chats')
           && req.method === 'GET') {
         const want = pathname.split('/')[2]; // deepseek | gemini | arena
-        if (getProvider(config.MODEL) !== want || !this.agent || !this.agent.browser || !this.agent.browser.adapter) {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ chats: [] }));
-          return;
-        }
         try {
+          const notReady = await this._ensureBrowserForHistory(want);
+          if (notReady) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ chats: [], reason: notReady }));
+            return;
+          }
           const chats = await this.agent.browser.listChats();
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ chats }));
+          res.end(JSON.stringify({ chats, reason: chats.length === 0 ? 'no chats found on page' : undefined }));
         } catch (err) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ chats: [], error: err.message }));
+          res.end(JSON.stringify({ chats: [], error: err.message, reason: err.message }));
         }
         return;
       }
@@ -632,12 +671,13 @@ class IDEServer {
           res.end(JSON.stringify({ error: 'Missing url' }));
           return;
         }
-        if (getProvider(config.MODEL) !== want || !this.agent || !this.agent.browser || !this.agent.browser.adapter) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: `Switch model to ${want} to open its chats` }));
-          return;
-        }
         try {
+          const notReady = await this._ensureBrowserForHistory(want);
+          if (notReady) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: notReady }));
+            return;
+          }
           const ok = await this.agent.browser.navigateToChat(body.url);
           const { getModelDisplayName } = require('./adapter-factory');
           res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -652,18 +692,19 @@ class IDEServer {
       if ((pathname === '/api/deepseek/messages' || pathname === '/api/gemini/messages' || pathname === '/api/arena/messages')
           && req.method === 'GET') {
         const want = pathname.split('/')[2];
-        if (getProvider(config.MODEL) !== want || !this.agent || !this.agent.browser || !this.agent.browser.adapter) {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ messages: [] }));
-          return;
-        }
         try {
+          const notReady = await this._ensureBrowserForHistory(want);
+          if (notReady) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ messages: [], reason: notReady }));
+            return;
+          }
           const messages = await this.agent.browser.readChatMessages();
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ messages }));
         } catch (err) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ messages: [], error: err.message }));
+          res.end(JSON.stringify({ messages: [], error: err.message, reason: err.message }));
         }
         return;
       }

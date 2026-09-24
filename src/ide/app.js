@@ -1733,7 +1733,7 @@ async function loadDeepSeekChats(list, gen) {
     if (!res.ok || gen !== _chatHistoryGeneration) return;
     const data = await res.json();
     const dsChats = data.chats || [];
-    if (dsChats.length === 0 || gen !== _chatHistoryGeneration) return;
+    if (dsChats.length === 0) return;
 
     const section = document.createElement('div');
     section.className = 'chat-history-section-title';
@@ -1813,7 +1813,7 @@ async function loadGeminiChats(list, gen) {
     if (!res.ok || gen !== _chatHistoryGeneration) return;
     const data = await res.json();
     const gmChats = data.chats || [];
-    if (gmChats.length === 0 || gen !== _chatHistoryGeneration) return;
+    if (gmChats.length === 0) return;
 
     const section = document.createElement('div');
     section.className = 'chat-history-section-title';
@@ -1893,7 +1893,22 @@ async function openGeminiChat(chatUrl) {
       if (!res.ok || gen !== _chatHistoryGeneration) return;
       const data = await res.json();
       const arChats = data.chats || [];
-      if (arChats.length === 0 || gen !== _chatHistoryGeneration) return;
+      if (arChats.length === 0) {
+        // Browser may still be starting — surface why, then retry once
+        if (data.reason && gen === _chatHistoryGeneration && !loadArenaChats._retried) {
+          loadArenaChats._retried = true;
+          setTimeout(() => loadArenaChats(list, gen), 4000);
+        }
+        if (data.reason && gen === _chatHistoryGeneration) {
+          const note = document.createElement('div');
+          note.className = 'chat-history-section-title';
+          note.textContent = data.reason;
+          note.style.cssText = 'font-size:10px;color:#666;padding:4px 10px;font-style:italic;';
+          list.appendChild(note);
+        }
+        return;
+      }
+      loadArenaChats._retried = false;
 
       const section = document.createElement('div');
       section.className = 'chat-history-section-title';
