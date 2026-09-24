@@ -2249,12 +2249,21 @@ function initSettings() {
 
     if (newModel) {
       try {
-        await fetch('/api/agent/run', {
+        const res = await fetch('/api/model', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ task: `/model ${newModel}` }),
+          body: JSON.stringify({ model: newModel }),
         });
-      } catch (e) {}
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          showToast(data.error || 'Failed to change model', 'error');
+          return;
+        }
+        if (dom.agentModelBadge) dom.agentModelBadge.textContent = data.model;
+      } catch (e) {
+        showToast('Failed to change model: ' + e.message, 'error');
+        return;
+      }
     }
 
     hideSettings();

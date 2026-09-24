@@ -551,6 +551,59 @@ class IDEServer {
         return;
       }
 
+      // Direct model switch — no agent task, no silent failures
+      if (pathname === '/api/model' && req.method === 'POST') {
+        const body = await this.readJsonBody(req);
+        const { SUPPORTED_MODELS, getModelDisplayName, getModelUrl, getAdapter, isArenaModel, getArenaUrl, getProvider } =
+          require('./adapter-factory');
+        const modelName = String(body.model || '').toLowerCase().trim();
+
+        if (!SUPPORTED_MODELS.includes(modelName)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            error: `Unknown model: "${modelName}"`,
+            available: SUPPORTED_MODELS,
+          }));
+          return;
+        }
+
+        const oldModel = config.MODEL || 'deepseek';
+        const oldArenaUrl = config.ARENA_URL;
+        config.MODEL = modelName;
+        if (isArenaModel(modelName)) config.ARENA_URL = getArenaUrl(modelName);
+
+        // Swap adapter + navigate if a browser session already exists
+        if (this.agent && this.agent.browser && this.agent.browser.page) {
+          try {
+            this.agent.browser.adapter = getAdapter(modelName, this.agent.browser.page, config);
+            await this.agent.browser.page.goto(getModelUrl(modelName), {
+              waitUntil: 'domcontentloaded',
+              timeout: config.BROWSER_TIMEOUT || 30000,
+            });
+            await this.agent.browser.page.waitForTimeout(1500);
+          } catch (e) {
+            config.MODEL = oldModel;
+            config.ARENA_URL = oldArenaUrl;
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: `Failed to switch: ${e.message}` }));
+            return;
+          }
+        }
+
+        // Persist so next launch uses the same model
+        try { require('./config').saveSessionOverrides(); } catch {}
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          success: true,
+          model: modelName,
+          provider: getProvider(modelName),
+          label: getModelDisplayName(modelName),
+          url: getModelUrl(modelName),
+        }));
+        return;
+      }
+
       if (pathname === '/api/agent/run' && req.method === 'POST') {
         const body = await this.readJsonBody(req);
         if (!body.task) {
