@@ -740,6 +740,7 @@ class ArenaAdapter extends BaseAdapter {
       const url = this._withSelectedModel(chatUrl);
       await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await this.page.waitForTimeout(2000);
+      this._modeChecked = false; // re-check mode after every history open
       await this._ensureDirectMode();
       return true;
     } catch (err) {
