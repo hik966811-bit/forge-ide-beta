@@ -1707,10 +1707,24 @@ window.addEventListener('DOMContentLoaded', async () => {
   const toggleHistoryBtn = document.getElementById('btnToggleChatHistory');
   const historyPanel = document.getElementById('chatHistoryPanel');
   if (toggleHistoryBtn && historyPanel) {
-    toggleHistoryBtn.addEventListener('click', () => {
+    toggleHistoryBtn.addEventListener('click', async () => {
       const isVisible = historyPanel.style.display !== 'none';
       historyPanel.style.display = isVisible ? 'none' : 'flex';
-      if (!isVisible) renderChatHistory();
+      if (!isVisible) {
+        // Re-sync from server on every open so server-side prunes (or
+        // another tab) show up without a page reload — server is truth.
+        try {
+          const r = await fetch('/api/persist');
+          if (r.ok) {
+            const d = await r.json();
+            if (d.chats && Object.keys(d.chats).length > 0) {
+              localStorage.setItem(getChatsStoreKey(), JSON.stringify(d.chats));
+            }
+            if (d.activeChatId) setActiveChatId(d.activeChatId);
+          }
+        } catch {}
+        renderChatHistory();
+      }
     });
   }
 
