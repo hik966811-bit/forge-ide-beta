@@ -1924,53 +1924,11 @@ function renderChatHistory() {
 
   const gen = ++_chatHistoryGeneration;
 
-  const chats = loadAllChats();
-  const sorted = Object.values(chats).sort((a, b) => b.updated - a.updated);
-  const activeId = getActiveChatId();
-
   list.innerHTML = '';
 
-  if (sorted.length > 0) {
-    const section = document.createElement('div');
-    section.className = 'chat-history-section-title';
-    section.textContent = 'Forge Chats';
-    section.style.cssText = 'font-size:10px;color:#666;padding:4px 10px;text-transform:uppercase;letter-spacing:0.5px;';
-    list.appendChild(section);
-  }
-
-  sorted.forEach(chat => {
-    const item = document.createElement('div');
-    item.className = 'chat-history-item' + (chat.id === activeId ? ' is-active' : '');
-    const time = new Date(chat.updated);
-    const timeStr = time.toLocaleDateString() + ' ' + time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-    item.innerHTML = `
-      <div class="chat-history-item-icon">
-        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
-      </div>
-      <div class="chat-history-item-info">
-        <div class="chat-history-item-title">${escapeHtml(chat.title)}</div>
-        <div class="chat-history-item-time">${timeStr}</div>
-      </div>
-      <button class="chat-history-item-delete" data-chat-id="${chat.id}" title="Delete">
-        <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M6 18L18 6"/></svg>
-      </button>
-    `;
-
-    item.addEventListener('click', (e) => {
-      if (e.target.closest('.chat-history-item-delete')) return;
-      switchToChat(chat.id);
-    });
-
-    const delBtn = item.querySelector('.chat-history-item-delete');
-    delBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      deleteChat(chat.id);
-    });
-
-    list.appendChild(item);
-  });
-
+  // No Forge (IDE-local) chat list: the panel shows provider chats only
+  // (DeepSeek / Gemini / Arena). Local chats still back the open
+  // conversation behind the scenes but are never listed.
   loadDeepSeekChats(list, gen);
   loadGeminiChats(list, gen);
   loadArenaChats(list, gen);
