@@ -54,12 +54,19 @@ class IDEServer {
   setupIDEPermissions() {
     setIDEPermissionCallback(({ label, detail, options }) => {
       return new Promise((resolve) => {
+        // Never orphan a previous pending request — approve it once so the
+        // agent loop can't stall silently when requests overlap.
+        if (this._pendingPermissionResolve) {
+          try { this._pendingPermissionResolve('once'); } catch {}
+          this._pendingPermissionResolve = null;
+        }
         this._pendingPermissionResolve = resolve;
         this.broadcast('permission_request', { label, detail, options });
         // Auto-approve after 120s if no response from IDE UI
         setTimeout(() => {
           if (this._pendingPermissionResolve === resolve) {
             this._pendingPermissionResolve = null;
+            this.broadcast('permission_resolved', { decision: 'once', timedOut: true });
             resolve('once');
           }
         }, 120_000);

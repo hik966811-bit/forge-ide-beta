@@ -1205,8 +1205,34 @@ function setupEventSource() {
     }
   });
 
+  // Tool results were previously invisible in the IDE — the AI got them via
+  // the browser, but the user only ever saw the request. Render a compact,
+  // unsaved line so "AI asks, nothing answers" is never the impression.
+  state.eventSource.addEventListener('agent_tool_result', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      const card = document.createElement('div');
+      card.className = 'tool-call-card tool-result-card';
+      const preview = String(data.result || '').slice(0, 600);
+      card.innerHTML = `
+        <div class="tool-call-header" style="color:${data.isError ? '#f87171' : '#4ade80'};">
+          <span>[${data.isError ? 'error' : 'ok'}] ${escapeHtml(data.toolName || 'tool')} result</span>
+        </div>
+        <div class="tool-call-body">${escapeHtml(preview)}</div>
+      `;
+      dom.chatMessages.appendChild(card);
+      dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
+      dom.activityTitle.textContent = `Result: ${data.toolName || 'tool'}`;
+    } catch {}
+  });
+
   state.eventSource.addEventListener('permission_request', (e) => {
     const data = JSON.parse(e.data);
+    // Make the wait unmissable: the agent is stalled until the user answers.
+    // The notice is NOT saved to chat history (skipSave) so it never leaks
+    // into the next agent run as fake conversation.
+    showToast(`Permission needed: ${data.detail || data.label || 'approve the tool'}`, 'error');
+    appendChatMessage('assistant', `**Waiting for your approval:** \`${data.detail || data.label || 'a tool'}\` — the agent is paused until you Allow or Deny in the dialog.`, true);
     showPermissionDialog(data);
   });
 
