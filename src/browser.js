@@ -20,11 +20,38 @@ class ForgeBrowser {
     this.page     = null;
     this._closed  = false;
     this.adapter  = null;
+    this._launchPromise = null;
+    this._launchedOk    = false;
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
+  /**
+   * Idempotent + serialized entry point. The IDE server pre-launches the
+   * browser in the background while the launcher ALSO calls agent.init() —
+   * without this guard the two concurrent launch() calls interleave
+   * _openContext (close/new races) and spray blank windows on one profile.
+   */
   async launch() {
+    if (this._launchPromise) return this._launchPromise;
+    if (this._launchedOk && this.adapter && this.page && !this.page.isClosed()) {
+      return; // already live — concurrent init collapses into a no-op
+    }
+    this._launchPromise = (async () => {
+      try {
+        await this._doLaunch();
+        this._launchedOk = true;
+      } catch (err) {
+        this._launchedOk = false;
+        throw err;
+      } finally {
+        this._launchPromise = null;
+      }
+    })();
+    return this._launchPromise;
+  }
+
+  async _doLaunch() {
     const sessionDir = path.resolve(config.SESSION_DIR);
     const authDoneFile = path.join(sessionDir, '.browser-auth-done');
     const authDone = fs.existsSync(authDoneFile);
@@ -149,6 +176,7 @@ class ForgeBrowser {
   async close() {
     if (this._closed) return;
     this._closed = true;
+    this._launchedOk = false;
     try { await this.context?.close(); } catch {}
   }
 
