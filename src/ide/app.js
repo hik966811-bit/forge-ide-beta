@@ -45,6 +45,11 @@ const dom = {
   agentModelBadge: document.getElementById('agentModelBadge'),
   agentPromptInput: document.getElementById('agentPromptInput'),
   btnSendTask: document.getElementById('btnSendTask'),
+  btnAttachImage: document.getElementById('btnAttachImage'),
+  attachFileInput: document.getElementById('attachFileInput'),
+  attachPreview: document.getElementById('attachPreview'),
+  attachPreviewImg: document.getElementById('attachPreviewImg'),
+  btnRemoveAttach: document.getElementById('btnRemoveAttach'),
   btnStopAgent: document.getElementById('btnStopAgent'),
   btnNewChat: document.getElementById('btnNewChat'),
   chatMessages: document.getElementById('chatMessages'),
@@ -835,13 +840,122 @@ function getParentDir(p) {
   return parts.join('/') || state.currentDir;
 }
 
+// ── Image attachments ─────────────────────────────────────────────────────────
+let pendingAttachment = null; // { url, path, name } or null
+
+function msgImageHtml(imageUrl) {
+  if (!imageUrl) return '';
+  return `<div class="msg-attachment"><img src="${escapeHtml(imageUrl)}" alt="attached image" loading="lazy"></div>`;
+}
+
+function clearPendingAttachment() {
+  pendingAttachment = null;
+  if (dom.attachFileInput) dom.attachFileInput.value = '';
+  if (dom.attachPreviewImg) dom.attachPreviewImg.src = '';
+  if (dom.attachPreview) dom.attachPreview.style.display = 'none';
+}
+
+function resizeImageFile(file, maxSide = 1280, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(url);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      } catch (e) {
+        URL.revokeObjectURL(url);
+        reject(e);
+      }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read image')); };
+    img.src = url;
+  });
+}
+
+async function handleAttachFile(file) {
+  if (!file) return;
+  if (!file.type || !file.type.startsWith('image/')) {
+    showToast('Only image files are supported', 'error');
+    return;
+  }
+  if (file.size > 15 * 1024 * 1024) {
+    showToast('Image too large (max 15 MB)', 'error');
+    return;
+  }
+  if (dom.btnAttachImage) dom.btnAttachImage.classList.add('is-busy');
+  showToast('Uploading image...', 'info');
+  try {
+    const dataUrl = await resizeImageFile(file);
+    const res = await fetch('/api/upload-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dataUrl, name: file.name }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.url) throw new Error(data.error || 'Upload failed');
+    pendingAttachment = { url: data.url, path: data.path || '', name: data.name || file.name };
+    if (dom.attachPreviewImg) dom.attachPreviewImg.src = data.url;
+    if (dom.attachPreview) dom.attachPreview.style.display = 'inline-block';
+    if (dom.agentPromptInput) dom.agentPromptInput.focus();
+  } catch (err) {
+    showToast(err.message, 'error');
+    clearPendingAttachment();
+  } finally {
+    if (dom.btnAttachImage) dom.btnAttachImage.classList.remove('is-busy');
+  }
+}
+
+if (dom.btnAttachImage && dom.attachFileInput) {
+  dom.btnAttachImage.addEventListener('click', () => dom.attachFileInput.click());
+  dom.attachFileInput.addEventListener('change', () => {
+    const file = dom.attachFileInput.files && dom.attachFileInput.files[0];
+    if (file) handleAttachFile(file);
+  });
+}
+if (dom.btnRemoveAttach) {
+  dom.btnRemoveAttach.addEventListener('click', clearPendingAttachment);
+}
+
+// Paste images straight from the clipboard into the composer
+if (dom.agentPromptInput) {
+  dom.agentPromptInput.addEventListener('paste', (e) => {
+    const items = (e.clipboardData && e.clipboardData.items) || [];
+    for (const item of items) {
+      if (item.type && item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) handleAttachFile(file);
+        return;
+      }
+    }
+  });
+}
+
 // ── Forge Agent AI Assistant ────────────────────────────────────────────────
 async function sendAgentTask() {
   const task = dom.agentPromptInput.value.trim();
-  if (!task || state.agentRunning) return;
+  const attachment = pendingAttachment;
+  if ((!task && !attachment) || state.agentRunning) return;
 
   dom.agentPromptInput.value = '';
-  appendChatMessage('user', task);
+  clearPendingAttachment();
+
+  const displayText = task || (attachment ? `Attached image: ${attachment.name}` : '');
+  appendChatMessage('user', displayText, false, attachment ? attachment.url : null);
+
+  // Image without text stays in the chat — nothing for the agent to run
+  if (!task) {
+    showToast('Image added to chat', 'success');
+    return;
+  }
 
   state.agentRunning = true;
   updateAgentRunningUI(true);
@@ -854,11 +968,15 @@ async function sendAgentTask() {
     text: (m.text || '').replace(/TASK_COMPLETE/g, '').trim(),
   })).filter(m => m.text) : [];
 
+  const agentTask = attachment && attachment.path
+    ? `${task}\n\n[User attached an image saved at: ${attachment.path}]`
+    : task;
+
   try {
     const res = await fetch('/api/agent/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ task, history }),
+      body: JSON.stringify({ task: agentTask, history }),
     });
 
     if (!res.ok) {
@@ -910,14 +1028,14 @@ function updateAgentRunningUI(isRunning) {
   }
 }
 
-function appendChatMessage(role, text, skipSave) {
+function appendChatMessage(role, text, skipSave, imageUrl) {
   if (typeof text === 'string') {
     text = text.replace(/TASK_COMPLETE/g, '').trim();
   }
-  if (!text) return;
+  if (!text && !imageUrl) return;
 
   // Save to persistence (unless loading history)
-  if (!skipSave) saveMessageToActiveChat(role, text);
+  if (!skipSave) saveMessageToActiveChat(role, text || '', imageUrl || null);
 
   if (role === 'assistant') {
     let parsedJson = null;
@@ -936,9 +1054,12 @@ function appendChatMessage(role, text, skipSave) {
 
   const card = document.createElement('div');
   card.className = `chat-msg msg-${role}`;
+  const imgHtml = msgImageHtml(imageUrl);
   const contentHtml = role === 'assistant'
-    ? `<div class="msg-bubble markdown-body">${renderMarkdown(text)}</div>`
-    : `<div class="msg-bubble">${escapeHtml(text)}</div>`;
+    ? `<div class="msg-bubble markdown-body">${imgHtml}${renderMarkdown(text)}</div>`
+    : (imgHtml && !text
+        ? `<div class="msg-bubble msg-bubble-media">${imgHtml}</div>`
+        : `<div class="msg-bubble">${imgHtml}${escapeHtml(text)}</div>`);
   card.innerHTML = `
     ${contentHtml}
     <div class="msg-meta">${role === 'assistant' ? 'Assistant · ' : ''}${new Date().toLocaleTimeString()}</div>
@@ -1641,7 +1762,7 @@ function switchToChat(id) {
   if (chatView) chatView.style.display = 'flex';
 }
 
-function saveMessageToActiveChat(role, text) {
+function saveMessageToActiveChat(role, text, imageUrl) {
   const id = getActiveChatId();
   if (!id) return;
   const chats = loadAllChats();
@@ -1649,14 +1770,17 @@ function saveMessageToActiveChat(role, text) {
 
   // Strip TASK_COMPLETE before saving
   const cleanText = (text || '').replace(/TASK_COMPLETE/g, '').trim();
-  if (!cleanText) return;
+  if (!cleanText && !imageUrl) return;
 
-  chats[id].messages.push({ role, text: cleanText, time: Date.now() });
+  const msg = { role, text: cleanText, time: Date.now() };
+  if (imageUrl) msg.imageUrl = imageUrl;
+  chats[id].messages.push(msg);
   chats[id].updated = Date.now();
 
   // Auto-title from first user message
   if (role === 'user' && chats[id].title === 'New Chat') {
-    chats[id].title = text.slice(0, 40) + (text.length > 40 ? '...' : '');
+    const titleSrc = cleanText || (imageUrl ? 'Image attachment' : '');
+    chats[id].title = titleSrc.slice(0, 40) + (titleSrc.length > 40 ? '...' : '');
   }
 
   // Keep max 200 messages
@@ -1997,12 +2121,15 @@ async function openGeminiChat(chatUrl) {
 
   chat.messages.forEach(msg => {
     const cleanText = (msg.text || '').replace(/TASK_COMPLETE/g, '').trim();
-    if (!cleanText) return;
+    if (!cleanText && !msg.imageUrl) return;
     const card = document.createElement('div');
     card.className = `chat-msg msg-${msg.role}`;
+    const msgImgHtml = msgImageHtml(msg.imageUrl);
     const contentHtml = msg.role === 'assistant'
-      ? `<div class="msg-bubble markdown-body">${renderMarkdown(cleanText)}</div>`
-      : `<div class="msg-bubble">${escapeHtml(cleanText)}</div>`;
+      ? `<div class="msg-bubble markdown-body">${msgImgHtml}${renderMarkdown(cleanText)}</div>`
+      : (msgImgHtml && !cleanText
+          ? `<div class="msg-bubble msg-bubble-media">${msgImgHtml}</div>`
+          : `<div class="msg-bubble">${msgImgHtml}${escapeHtml(cleanText)}</div>`);
     card.innerHTML = `
       ${contentHtml}
       <div class="msg-meta">${msg.role === 'assistant' ? 'Assistant · ' : ''}${new Date(msg.time).toLocaleTimeString()}</div>

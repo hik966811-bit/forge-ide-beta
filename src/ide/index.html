@@ -321,8 +321,21 @@
         <!-- Agent Input -->
         <div class="agent-input-container">
           <div class="agent-input-box">
+            <div class="agent-attach-preview" id="attachPreview" style="display:none;">
+              <img id="attachPreviewImg" src="" alt="attachment">
+              <button class="agent-attach-remove" id="btnRemoveAttach" title="Remove image">
+                <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M6 18L18 6"/></svg>
+              </button>
+            </div>
             <textarea class="agent-textarea" id="agentPromptInput" rows="2" placeholder="Describe a task or instruction..."></textarea>
             <div class="agent-input-actions">
+              <button class="agent-btn-icon" id="btnAttachImage" title="Attach image">
+                <svg class="svg-icon" viewBox="0 0 24 24" width="14" height="14">
+                  <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
+                </svg>
+              </button>
+              <input type="file" id="attachFileInput" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none;">
+              <span class="agent-input-spacer"></span>
               <button class="agent-btn-stop" id="btnStopAgent" title="Stop task" style="display:none;">
                 <svg class="svg-icon" viewBox="0 0 24 24" width="13" height="13">
                   <rect x="6" y="6" width="12" height="12" fill="currentColor" rx="1"/>

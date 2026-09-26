@@ -205,6 +205,15 @@ kbd { background: #1a1a1a; border: 1px solid #1e1e1e; border-bottom: 2px solid #
 .agent-input-box:focus-within { border-color: var(--accent-primary); }
 .agent-textarea { background: transparent; border: none; outline: none; resize: none; color: var(--text-primary); font-family: var(--font-ui); font-size: 12px; line-height: 1.4; min-height: 40px; max-height: 100px; }
 .agent-input-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.agent-input-spacer { flex: 1; }
+.agent-btn-icon { background: rgba(255,255,255,0.04); border: none; color: var(--text-secondary); width: 26px; height: 26px; border-radius: 3px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: all 0.1s ease; }
+.agent-btn-icon:hover { background: rgba(249,115,22,0.15); color: var(--text-primary); transform: scale(1.05); }
+.agent-btn-icon.is-busy { opacity: 0.5; pointer-events: none; }
+.agent-attach-preview { position: relative; display: inline-block; width: 72px; height: 72px; }
+.agent-attach-preview img { width: 72px; height: 72px; object-fit: cover; border-radius: 5px; border: 1px solid #2a2a2a; }
+.agent-attach-remove { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%; background: #f87171; color: #fff; border: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.agent-attach-remove:hover { transform: scale(1.1); }
+.msg-attachment img { max-width: 260px; max-height: 260px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); cursor: zoom-in; display: block; margin-bottom: 6px; }
 .agent-btn-send, .agent-btn-stop { border: none; border-radius: 3px; padding: 5px 12px; font-size: 11px; font-weight: 500; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; transition: all 0.12s ease; }
 .agent-btn-send { background: var(--accent-primary); color: #fff; }
 .agent-btn-send:hover { opacity: 0.9; transform: scale(1.03); }

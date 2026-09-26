@@ -848,10 +848,61 @@ class IDEServer {
         return;
       }
 
+      // ── Image upload (chat attachments) ─────────────────────────────────
+      if (pathname === '/api/upload-image' && req.method === 'POST') {
+        try {
+          const body = await this.readJsonBody(req);
+          const m = /^data:image\/(png|jpe?g|gif|webp);base64,([A-Za-z0-9+/=]+)$/.exec(
+            String(body.dataUrl || '').slice(0, 12 * 1024 * 1024)
+          );
+          if (!m) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Invalid image data' }));
+            return;
+          }
+          const ext = m[1] === 'jpeg' ? 'jpg' : m[1];
+          const buf = Buffer.from(m[2], 'base64');
+          if (buf.length === 0 || buf.length > 8 * 1024 * 1024) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Image too large (max 8 MB)' }));
+            return;
+          }
+          const uploadsDir = path.join(os.homedir(), '.forge-ide', 'uploads');
+          if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+          const fname = Date.now().toString(36) + Math.random().toString(36).slice(2, 10) + '.' + ext;
+          fs.writeFileSync(path.join(uploadsDir, fname), buf);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            url: '/uploads/' + fname,
+            path: path.join(uploadsDir, fname),
+            name: String(body.name || 'image').slice(0, 100),
+          }));
+        } catch (err) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: err.message || 'Upload failed' }));
+        }
+        return;
+      }
+
       // ── Static Files ────────────────────────────────────────────────────────
       let reqPath = pathname;
       if (reqPath === '/' || reqPath === '/index.html') {
         reqPath = '/index.html';
+      }
+
+      // Serve uploaded chat images from ~/.forge-ide/uploads
+      if (reqPath === '/uploads' || reqPath.startsWith('/uploads/')) {
+        const fname = path.basename(reqPath);
+        const fp = path.join(os.homedir(), '.forge-ide', 'uploads', fname);
+        const mimeByExt = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
+        if (fname && fname !== 'uploads' && fs.existsSync(fp) && fs.statSync(fp).isFile()) {
+          res.writeHead(200, { 'Content-Type': mimeByExt[path.extname(fp).toLowerCase()] || 'application/octet-stream' });
+          fs.createReadStream(fp).pipe(res);
+          return;
+        }
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Image not found' }));
+        return;
       }
 
       // Serve astramusic.wav from parent directory
