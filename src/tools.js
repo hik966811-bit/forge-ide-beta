@@ -18,6 +18,7 @@ const { startProcess, stopProcess, getProcessStatus, listProcesses, getProcessLo
 const { takeScreenshot } = require('./screenshot');
 const { readClipboard, writeClipboard } = require('./clipboard');
 const unity = require('./unity');
+const roblox = require('./roblox');
 const { loadAllPlugins } = require('./plugin-loader');
 const ToolCache = require('./tool-cache');
 const { smartTruncate } = require('./truncator');
@@ -1475,6 +1476,170 @@ const TOOLS = {
       if (t.note) return `${head}\n${t.note}`;
       const errs = (t.errorLines || []).length ? `--- recent errors ---\n${t.errorLines.join('\n')}\n--- tail ---\n` : '';
       return `${head}\n${errs}${t.lines.join('\n').slice(-6000)}`;
+    },
+  },
+
+  // ── Roblox: Detect Project ──────────────────────────────────────────────────
+  roblox_detect: {
+    description: 'Detect a Roblox project: walks up looking for a Rojo project file ' +
+      '(default.project.json / rojo.json) or .rbxl place files. Also reports whether ' +
+      'rojo, lune, remodel and Roblox Studio are installed. Always call this first ' +
+      'before any other roblox_* tool.',
+    parameters: {
+      path: { type: 'string', required: false, description: 'Directory to check (default: workspace)' },
+    },
+    async execute({ path: dir }) {
+      const start = dir || config.WORKING_DIR || process.cwd();
+      const lines = [];
+      const found = roblox.detectRobloxProject(start);
+      if (!found) {
+        lines.push(`Not a Roblox project: ${path.resolve(start)} (no Rojo project file or .rbxl found upwards)`);
+      } else {
+        lines.push(`Roblox project: ${found.root}\nType: ${found.kind === 'rojo' ? 'Rojo-synced project' : 'Studio place folder'}`);
+      }
+      const tools = roblox.findRobloxTools();
+      lines.push(`rojo: ${tools.rojo || 'NOT FOUND — install from https://rojo.space/docs/installation (needed to sync files into Studio)'}`);
+      lines.push(`lune: ${tools.lune || 'NOT FOUND — install from https://lune-org.github.io/docs (needed to run Luau code/tests outside Studio)'}`);
+      lines.push(`remodel: ${tools.remodel || 'NOT FOUND — optional, for patching .rbxl place files headlessly'}`);
+      const studios = roblox.findRobloxStudio();
+      lines.push(studios.length
+        ? `Roblox Studio: ${studios.map(s => s.path).join(', ')}`
+        : 'Roblox Studio: not found (install it to open places and use the live bridge)');
+      return lines.join('\n');
+    },
+  },
+
+  // ── Roblox: Init Rojo Project ───────────────────────────────────────────────
+  roblox_init: {
+    description: 'Scaffold a Rojo project in a folder: default.project.json plus ' +
+      'src/server, src/client, src/shared. Afterwards open it with `rojo serve` ' +
+      '(via start_process) and connect the Rojo Studio plugin.',
+    parameters: {
+      path: { type: 'string', required: false, description: 'Target folder (default: workspace)' },
+      name: { type: 'string', required: false, description: 'Project name (default: folder name)' },
+    },
+    async execute({ path: dir, name }) {
+      const root = path.resolve(dir || config.WORKING_DIR || process.cwd());
+      try { fs.mkdirSync(root, { recursive: true }); } catch {}
+      const projectFile = roblox.scaffoldRojoProject(root, name);
+      return `Rojo project scaffolded at ${root}\n- ${projectFile}\n- src/server, src/client, src/shared\nNext: run \`rojo serve\` (start_process, cwd = project root), install the Rojo plugin in Studio, and connect. Use roblox_script to add Luau files.`;
+    },
+  },
+
+  // ── Roblox: Write Luau Script ───────────────────────────────────────────────
+  roblox_script: {
+    description: 'Create a Luau file in a Rojo project. Templates: serverscript ' +
+      '(ServerScriptService), localscript (StarterPlayerScripts), module ' +
+      '(ReplicatedStorage shared ModuleScript), test (runnable with `lune run`). ' +
+      'For full custom code, pass kind "custom" with the complete file content. ' +
+      'Files land in src/<area>/ and sync into Studio via `rojo serve`.',
+    parameters: {
+      name: { type: 'string', required: true, description: 'Script name, e.g. CoinCollector' },
+      kind: { type: 'string', required: false, description: 'serverscript (default), localscript, module, test, or custom' },
+      content: { type: 'string', required: false, description: 'Full Luau source (required when kind is custom)' },
+      project: { type: 'string', required: false, description: 'Roblox project root (default: auto-detect from workspace)' },
+    },
+    async execute({ name, kind = 'serverscript', content, project }) {
+      const proj = roblox.detectRobloxProject(project || config.WORKING_DIR || process.cwd());
+      if (!proj) throw new Error('Not inside a Roblox project — run roblox_detect / roblox_init first.');
+      const area = kind === 'localscript' ? 'client' : kind === 'module' ? 'shared' : kind === 'test' ? 'tests' : 'server';
+      let fileName, source;
+      if (kind === 'custom') {
+        if (!content || !content.trim()) throw new Error('roblox_script with kind "custom" requires content.');
+        fileName = String(name).replace(/[^A-Za-z0-9_]/g, '') + '.luau';
+        source = content;
+      } else {
+        const t = roblox.newLuauContent(kind, name);
+        fileName = t.fileName;
+        source = t.content;
+      }
+      const dest = path.join(proj.root, 'src', area, fileName);
+      await TOOLS.write_file.execute({ path: dest, content: source });
+      return `Wrote Luau ${kind} → ${dest}\nIt syncs into Studio on the next \`rojo serve\` refresh. Run tests with roblox_lune.`;
+    },
+  },
+
+  // ── Roblox: Run Lune ────────────────────────────────────────────────────────
+  roblox_lune: {
+    description: 'Run a Luau file outside Studio with Lune (`lune run <file>`). ' +
+      'Use for tests and game logic that does not need the DataModel. Returns exit code and output.',
+    parameters: {
+      file: { type: 'string', required: true, description: 'Luau file to run (workspace-relative or absolute)' },
+      args: { type: 'array', required: false, description: 'Extra args passed to the script' },
+      timeout: { type: 'number', required: false, description: 'Max ms to wait (default 300000 = 5 min)' },
+    },
+    async execute({ file, args = [], timeout }) {
+      const tools = roblox.findRobloxTools();
+      if (!tools.lune) {
+        throw new Error('lune not found on PATH. Install it from https://lune-org.github.io/docs (or set LUNE_PATH) to run Luau outside Studio.');
+      }
+      const target = path.isAbsolute(file) ? file : path.join(config.WORKING_DIR || process.cwd(), file);
+      if (!fs.existsSync(target)) throw new Error(`Luau file not found: ${target}`);
+      const res = roblox.runBin(tools.lune, ['run', target, ...args], timeout || 5 * 60 * 1000);
+      return `lune run ${file} exit code: ${res.code}${res.timedOut ? ' (TIMED OUT)' : ''}\n${res.output}`;
+    },
+  },
+
+  // ── Roblox: Rojo Build ──────────────────────────────────────────────────────
+  roblox_rojo: {
+    description: 'Run `rojo build` to compile the Rojo project into a .rbxl place file ' +
+      'you can open directly in Studio. (For live sync use `rojo serve` via start_process instead.)',
+    parameters: {
+      project: { type: 'string', required: false, description: 'Roblox project root (default: auto-detect)' },
+      output: { type: 'string', required: false, description: 'Output .rbxl path (default: <project>/build/place.rbxl)' },
+    },
+    async execute({ project, output }) {
+      const proj = roblox.detectRobloxProject(project || config.WORKING_DIR || process.cwd());
+      if (!proj) throw new Error('Not inside a Roblox project — run roblox_detect / roblox_init first.');
+      const tools = roblox.findRobloxTools();
+      if (!tools.rojo) {
+        throw new Error('rojo not found on PATH. Install it from https://rojo.space/docs/installation (or set ROJO_PATH).');
+      }
+      const out = output || path.join(proj.root, 'build', 'place.rbxl');
+      try { fs.mkdirSync(path.dirname(out), { recursive: true }); } catch {}
+      const res = roblox.runBin(tools.rojo, ['build', '-o', out], 5 * 60 * 1000);
+      return `rojo build exit code: ${res.code}${res.timedOut ? ' (TIMED OUT)' : ''}\nOutput: ${out}\n${res.output}`;
+    },
+  },
+
+  // ── Roblox: Place Info ──────────────────────────────────────────────────────
+  roblox_place: {
+    description: 'Describe a Roblox project without opening Studio: Rojo tree services, ' +
+      '.rbxl place files present, and Luau file layout under src/.',
+    parameters: {
+      project: { type: 'string', required: false, description: 'Roblox project root (default: auto-detect)' },
+    },
+    async execute({ project }) {
+      const proj = roblox.detectRobloxProject(project || config.WORKING_DIR || process.cwd());
+      if (!proj) throw new Error('Not inside a Roblox project — run roblox_detect / roblox_init first.');
+      const lines = [`Roblox project: ${proj.root} (${proj.kind})`];
+      for (const f of ['default.project.json', 'rojo.json']) {
+        const p = path.join(proj.root, f);
+        if (fs.existsSync(p)) {
+          try {
+            const tree = JSON.parse(fs.readFileSync(p, 'utf8')).tree || {};
+            lines.push(`${f} services: ${Object.keys(tree).filter(k => !k.startsWith('$')).join(', ') || '(none)'}`);
+          } catch { lines.push(`${f}: unreadable`); }
+        }
+      }
+      const walk = (dir, depth) => {
+        let out = [];
+        if (depth > 3) return out;
+        let entries = [];
+        try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+        for (const e of entries) {
+          if (e.name.startsWith('.') || e.name === 'build' || e.name === 'Packages') continue;
+          const full = path.join(dir, e.name);
+          if (e.isDirectory()) out = out.concat(walk(full, depth + 1));
+          else if (/\.(lua|luau)$/i.test(e.name) || /\.rbxlx?$/i.test(e.name)) {
+            out.push(path.relative(proj.root, full));
+          }
+        }
+        return out;
+      };
+      const files = walk(proj.root, 0).slice(0, 60);
+      lines.push(files.length ? `Files:\n- ${files.join('\n- ')}` : 'No .lua/.luau/.rbxl files found yet — use roblox_script to add some.');
+      return lines.join('\n');
     },
   },
 

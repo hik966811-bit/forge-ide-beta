@@ -14,6 +14,8 @@ const TOOL_CATEGORIES = {
   stop_process: 'shell_exec', install_package: 'shell_exec',
   unity_build: 'shell_exec', unity_run: 'shell_exec', unity_test: 'shell_exec',
   unity_script: 'file_write',
+  roblox_lune: 'shell_exec', roblox_rojo: 'shell_exec',
+  roblox_script: 'file_write', roblox_init: 'file_write',
   set_env_var: 'env_write', delete_env_var: 'env_write',
   write_clipboard: 'system_write',
 };
@@ -27,6 +29,7 @@ const READ_ONLY_TOOLS = new Set([
   'diff_files', 'run_tests', 'read_url',
   'show_info',
   'unity_detect', 'unity_editors', 'unity_log',
+  'roblox_detect', 'roblox_place',
 ]);
 
 const CATEGORY_LABELS = {
