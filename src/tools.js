@@ -17,6 +17,7 @@ const { readEnvFile, setEnvVar, deleteEnvVar, findEnvFiles, checkRequiredVars, f
 const { startProcess, stopProcess, getProcessStatus, listProcesses, getProcessLogs, waitForReady, formatProcessList, formatProcessLogs } = require('./process-manager');
 const { takeScreenshot } = require('./screenshot');
 const { readClipboard, writeClipboard } = require('./clipboard');
+const unity = require('./unity');
 const { loadAllPlugins } = require('./plugin-loader');
 const ToolCache = require('./tool-cache');
 const { smartTruncate } = require('./truncator');
@@ -1304,6 +1305,176 @@ const TOOLS = {
     async execute({ text }) {
       writeClipboard(text);
       return `✓ Copied ${text.length} character(s) to clipboard`;
+    },
+  },
+
+  // ── Unity: Detect Project ───────────────────────────────────────────────────
+  unity_detect: {
+    description: 'Detect whether a folder is a Unity project (Assets/ + ProjectSettings/). ' +
+      'Walks up from the given directory. Returns project root and Unity version. ' +
+      'Always call this first before any other unity_* tool.',
+    parameters: {
+      path: { type: 'string', required: false, description: 'Directory to check (default: workspace)' },
+    },
+    async execute({ path: dir }) {
+      const start = dir || config.WORKING_DIR || process.cwd();
+      const found = unity.detectUnityProject(start);
+      if (!found) return `Not a Unity project: ${path.resolve(start)} (no Assets/ + ProjectSettings/ProjectVersion.txt found upwards)`;
+      return `Unity project: ${found.root}\nUnity version: ${found.version}`;
+    },
+  },
+
+  // ── Unity: List Editors ─────────────────────────────────────────────────────
+  unity_editors: {
+    description: 'List installed Unity Editors on this machine (Unity Hub layout, UNITY_PATH, PATH).',
+    parameters: {},
+    async execute() {
+      const editors = unity.findUnityEditors();
+      if (editors.length === 0) {
+        return 'No Unity Editor found. Install Unity Hub + an Editor, or set the UNITY_PATH environment variable to Unity.exe.';
+      }
+      return editors.map(e => `${e.version} → ${e.path}`).join('\n');
+    },
+  },
+
+  // ── Unity: Write C# Script ──────────────────────────────────────────────────
+  unity_script: {
+    description: 'Create a Unity C# script inside a Unity project. Writes Assets/Scripts/<name>.cs ' +
+      'with a starter template (behaviour = MonoBehaviour, editor = EditorWindow, mesh = procedural-mesh MonoBehaviour ' +
+      'that builds geometry in code — use this to "make models" without model files). ' +
+      'For full custom code, pass kind "custom" with the complete file content.',
+    parameters: {
+      name: { type: 'string', required: true, description: 'Class/file name, e.g. PlayerController' },
+      kind: { type: 'string', required: false, description: 'behaviour (default), editor, mesh, or custom' },
+      content: { type: 'string', required: false, description: 'Full C# source (required when kind is custom)' },
+      project: { type: 'string', required: false, description: 'Unity project root (default: auto-detect from workspace)' },
+      folder: { type: 'string', required: false, description: 'Subfolder under Assets (default: Scripts)' },
+    },
+    async execute({ name, kind = 'behaviour', content, project, folder = 'Scripts' }) {
+      const proj = unity.detectUnityProject(project || config.WORKING_DIR || process.cwd());
+      if (!proj) throw new Error('Not inside a Unity project — run unity_detect first.');
+      let fileName, source;
+      if (kind === 'custom') {
+        if (!content || !content.trim()) throw new Error('unity_script with kind "custom" requires content.');
+        fileName = String(name).replace(/[^A-Za-z0-9_]/g, '') + '.cs';
+        source = content;
+      } else {
+        const t = unity.newScriptContent(kind, name);
+        fileName = t.className + '.cs';
+        source = t.content;
+      }
+      const dest = path.join(proj.root, 'Assets', folder, fileName);
+      await TOOLS.write_file.execute({ path: dest, content: source });
+      return `Wrote Unity script → ${dest}\nUnity recompiles on next Editor refresh. Use unity_build to compile-check in batch mode.`;
+    },
+  },
+
+  // ── Unity: Build Player ─────────────────────────────────────────────────────
+  unity_build: {
+    description: 'Build a Unity project headless (batch mode). Compiles scripts and produces a player. ' +
+      'Slow — can take 10+ minutes for first builds. Returns exit code plus error lines from the Unity log.',
+    parameters: {
+      project: { type: 'string', required: false, description: 'Unity project root (default: auto-detect)' },
+      target: { type: 'string', required: false, description: 'Build target: Win64 (default), Android, iOS, macOS, Linux64, WebGL' },
+      output: { type: 'string', required: false, description: 'Output file/folder (default: <project>/Builds/<target>/)' },
+      editor: { type: 'string', required: false, description: 'Editor version or exe path (default: first found)' },
+      timeout: { type: 'number', required: false, description: 'Max ms to wait (default 1200000 = 20 min)' },
+    },
+    async execute({ project, target = 'Win64', output, editor, timeout }) {
+      const proj = unity.detectUnityProject(project || config.WORKING_DIR || process.cwd());
+      if (!proj) throw new Error('Not inside a Unity project — run unity_detect first.');
+      const ed = unity.pickEditor(editor);
+      const outDir = output || path.join(proj.root, 'Builds', target);
+      // Desktop targets build with plain CLI flags (no Editor code needed).
+      // Mobile/WebGL go through ForgeBridge.BuildPlayer — install
+      // assets/unity/ForgeBridge.cs into Assets/Editor/Forge/ first.
+      let cliArgs;
+      if (target === 'Win64') {
+        cliArgs = ['-buildWindowsPlayer', path.join(outDir, 'Player.exe'), '-quit'];
+      } else if (target === 'macOS') {
+        cliArgs = ['-buildOSXUniversalPlayer', path.join(outDir, 'Player.app'), '-quit'];
+      } else if (target === 'Linux64') {
+        cliArgs = ['-buildLinux64Player', path.join(outDir, 'Player.x86_64'), '-quit'];
+      } else if (target === 'Android' || target === 'iOS' || target === 'WebGL') {
+        cliArgs = ['-buildTarget', target, '-executeMethod', 'ForgeBridge.BuildPlayer',
+          '-forgeBuildTarget', target, '-forgeBuildPath', outDir, '-quit'];
+      } else {
+        throw new Error(`Unknown build target "${target}". Use Win64, macOS, Linux64, Android, iOS, or WebGL.`);
+      }
+      const res = unity.runUnityBatch({
+        editorPath: ed.path,
+        projectPath: proj.root,
+        timeoutMs: timeout || 20 * 60 * 1000,
+        cliArgs,
+      });
+      let hint = '';
+      if (res.code !== 0 && /Could not execute method|Method not found|does not exist/i.test(res.logTail)) {
+        hint = '\nHINT: install assets/unity/ForgeBridge.cs into Assets/Editor/Forge/ for mobile/WebGL builds and live Editor access.';
+      }
+      return `Unity build (${target}) exit code: ${res.code}${res.timedOut ? ' (TIMED OUT)' : ''}\nLog: ${res.logFile}\n${res.logTail}${hint}`;
+    },
+  },
+
+  // ── Unity: Run Editor Method ────────────────────────────────────────────────
+  unity_run: {
+    description: 'Run a static C# method inside the Unity Editor headless (-executeMethod). ' +
+      'Use for custom automation: generating prefabs, baking data, procedural models. ' +
+      'Method must be static, return void, take no args (e.g. MyBuilder.BuildAll).',
+    parameters: {
+      method: { type: 'string', required: true, description: 'Static method, e.g. MyBuilder.BuildAll' },
+      project: { type: 'string', required: false, description: 'Unity project root (default: auto-detect)' },
+      editor: { type: 'string', required: false, description: 'Editor version or exe path (default: first found)' },
+      timeout: { type: 'number', required: false, description: 'Max ms to wait (default 1200000 = 20 min)' },
+    },
+    async execute({ method, project, editor, timeout }) {
+      const proj = unity.detectUnityProject(project || config.WORKING_DIR || process.cwd());
+      if (!proj) throw new Error('Not inside a Unity project — run unity_detect first.');
+      const ed = unity.pickEditor(editor);
+      const res = unity.runUnityBatch({
+        editorPath: ed.path,
+        projectPath: proj.root,
+        timeoutMs: timeout || 20 * 60 * 1000,
+        cliArgs: ['-executeMethod', method, '-quit'],
+      });
+      return `Unity -executeMethod ${method} exit code: ${res.code}${res.timedOut ? ' (TIMED OUT)' : ''}\nLog: ${res.logFile}\n${res.logTail}`;
+    },
+  },
+
+  // ── Unity: Run Tests ────────────────────────────────────────────────────────
+  unity_test: {
+    description: 'Run Unity EditMode tests headless (-runTests -testPlatform EditMode). Returns pass/fail summary from the log.',
+    parameters: {
+      project: { type: 'string', required: false, description: 'Unity project root (default: auto-detect)' },
+      editor: { type: 'string', required: false, description: 'Editor version or exe path (default: first found)' },
+      timeout: { type: 'number', required: false, description: 'Max ms to wait (default 1200000 = 20 min)' },
+    },
+    async execute({ project, editor, timeout }) {
+      const proj = unity.detectUnityProject(project || config.WORKING_DIR || process.cwd());
+      if (!proj) throw new Error('Not inside a Unity project — run unity_detect first.');
+      const ed = unity.pickEditor(editor);
+      const res = unity.runUnityBatch({
+        editorPath: ed.path,
+        projectPath: proj.root,
+        timeoutMs: timeout || 20 * 60 * 1000,
+        cliArgs: ['-runTests', '-testPlatform', 'EditMode', '-quit'],
+      });
+      return `Unity tests exit code: ${res.code}${res.timedOut ? ' (TIMED OUT)' : ''}\nLog: ${res.logFile}\n${res.logTail}`;
+    },
+  },
+
+  // ── Unity: Console Log ──────────────────────────────────────────────────────
+  unity_log: {
+    description: 'Read the tail of the Unity Editor log (compile errors, exceptions). ' +
+      'Use after builds, script writes, or when something fails in the Editor.',
+    parameters: {
+      lines: { type: 'number', required: false, description: 'Tail lines (default 120)' },
+    },
+    async execute({ lines = 120 }) {
+      const t = unity.tailEditorLog(lines);
+      const head = `Editor.log: ${t.logFile}`;
+      if (t.note) return `${head}\n${t.note}`;
+      const errs = (t.errorLines || []).length ? `--- recent errors ---\n${t.errorLines.join('\n')}\n--- tail ---\n` : '';
+      return `${head}\n${errs}${t.lines.join('\n').slice(-6000)}`;
     },
   },
 

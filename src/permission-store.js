@@ -12,6 +12,8 @@ const TOOL_CATEGORIES = {
   delete_file: 'file_delete',
   run_command: 'shell_exec', start_process: 'shell_exec',
   stop_process: 'shell_exec', install_package: 'shell_exec',
+  unity_build: 'shell_exec', unity_run: 'shell_exec', unity_test: 'shell_exec',
+  unity_script: 'file_write',
   set_env_var: 'env_write', delete_env_var: 'env_write',
   write_clipboard: 'system_write',
 };
@@ -24,6 +26,7 @@ const READ_ONLY_TOOLS = new Set([
   'list_processes', 'read_process_logs', 'read_clipboard',
   'diff_files', 'run_tests', 'read_url',
   'show_info',
+  'unity_detect', 'unity_editors', 'unity_log',
 ]);
 
 const CATEGORY_LABELS = {
