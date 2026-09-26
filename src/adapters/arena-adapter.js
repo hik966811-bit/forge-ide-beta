@@ -277,6 +277,7 @@ class ArenaAdapter extends BaseAdapter {
       // Phase 1: wait for a new message to appear
       const initialCount = await this._getMessageCount();
       let appeared = false;
+      let skipPoll1 = 0;
 
       while (Date.now() - start < (this.config.APPEAR_TIMEOUT || 120_000)) {
         if (await this._isCaptchaShowing()) {
@@ -284,6 +285,9 @@ class ArenaAdapter extends BaseAdapter {
         }
         const count = await this._getMessageCount();
         if (count > initialCount) { appeared = true; break; }
+        // Battle mode shows a Skip button while both responses generate —
+        // the user wants it auto-clicked every time.
+        if (++skipPoll1 >= 5) { skipPoll1 = 0; await this._maybeClickSkip().catch(() => {}); }
         await this.page.waitForTimeout(200);
       }
 
@@ -295,6 +299,7 @@ class ArenaAdapter extends BaseAdapter {
       let lastIndicatorUpdate = 0;
       let loginPoll   = 0;
       let captchaPoll = 0;
+      let skipPoll    = 0;
 
       while (Date.now() - start < timeout) {
         if (++captchaPoll >= 5) {
@@ -302,6 +307,10 @@ class ArenaAdapter extends BaseAdapter {
           if (await this._isCaptchaShowing()) {
             await this._waitForCaptchaClear(start);
           }
+        }
+        if (++skipPoll >= 3) {
+          skipPoll = 0;
+          await this._maybeClickSkip().catch(() => {});
         }
 
         const text = await this._extractLastMessage();
@@ -693,6 +702,67 @@ class ArenaAdapter extends BaseAdapter {
       }
       return false;
     });
+  }
+
+  /**
+   * Battle mode shows a "Skip" button while both responses generate.
+   * Auto-click it (user request) — but ONLY inside a battle context so a
+   * same-named button anywhere else (onboarding, login wall) is never hit.
+   * Returns true when a Skip was clicked.
+   */
+  async _maybeClickSkip() {
+    try {
+      const clicked = await this.page.evaluate(() => {
+        const vis = el => {
+          try {
+            const s = window.getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0'
+              && r.width > 0 && r.height > 0;
+          } catch { return false; }
+        };
+        const norm = t => (t || '')
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+        // Battle context: mode trigger says Battle, or 2+ assistant
+        // columns ("Generating..." panels count) below the last user msg.
+        let battle = false;
+        try {
+          for (const el of document.querySelectorAll('button, [role="tab"]')) {
+            if (!vis(el)) continue;
+            if (/^battle\b/i.test((el.innerText || '').trim())) { battle = true; break; }
+          }
+          if (!battle) {
+            const users = [...document.querySelectorAll('[class*="items-end"]')];
+            let afterY = -Infinity;
+            if (users.length > 0) {
+              try { afterY = users[users.length - 1].getBoundingClientRect().bottom; } catch {}
+            }
+            const cols = [...document.querySelectorAll('.prose')].filter(el => {
+              if (el.closest('[class*="items-end"]')) return false;
+              if ((el.innerText || '').trim().length < 10) return false;
+              try { return el.getBoundingClientRect().top >= afterY - 12; } catch { return false; }
+            });
+            battle = cols.length >= 2;
+          }
+        } catch {}
+        if (!battle) return false;
+
+        const btn = [...document.querySelectorAll('button, [role="button"], a')].find(
+          el => vis(el) && norm(el.innerText) === 'skip'
+        );
+        if (!btn) return false;
+        try { btn.click(); } catch { return false; }
+        return true;
+      });
+      if (clicked) logger.dim('Battle mode — clicked Skip (auto)');
+      return !!clicked;
+    } catch {
+      return false;
+    }
   }
 
   /**

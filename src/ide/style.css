@@ -202,6 +202,7 @@ kbd { background: #1a1a1a; border: 1px solid #1e1e1e; border-bottom: 2px solid #
 .task-chip-dot.is-wait { background: #facc15; animation: thinkingPulse 1.2s ease-in-out infinite; }
 .task-chip-dot.is-done { background: #4ade80; animation: none; }
 .task-chip-dot.is-error { background: #f87171; animation: none; }
+.task-chip-icon { color: var(--text-muted); flex-shrink: 0; }
 .agent-live-activity { background: rgba(249,115,22,0.04); border-top: 1px solid #1a1a1a; padding: 6px 8px; flex-shrink: 0; }
 .activity-header { display: flex; align-items: center; gap: 6px; }
 .activity-pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-secondary); box-shadow: 0 0 6px var(--accent-secondary); animation: activityPulse 1.5s infinite; }
