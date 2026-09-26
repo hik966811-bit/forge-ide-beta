@@ -195,6 +195,10 @@ class ArenaAdapter extends BaseAdapter {
 
     await this._ensureDirectMode();
 
+    // A leftover "Continue with A/B" choice from an interrupted turn would
+    // otherwise confuse the next response — clear it now (instant check).
+    await this._maybeChooseBattleResponse(0);
+
     await withSendRetry(async () => {
       const { el, isTextarea } = await this._findInput();
 
@@ -345,7 +349,16 @@ class ArenaAdapter extends BaseAdapter {
         logger.dim(formatThinkingForLog(this.thinkingTracker.thinkingContent));
       }
 
-      const final   = await this._extractLastMessage();
+      let final = await this._extractLastMessage();
+
+      // Battle/Side-by-side: once both streams finish Arena waits for a
+      // human "Continue with A / B" click — pick one at random so the
+      // agent never stalls on a button nobody presses.
+      if (await this._isBattleColumns()) {
+        const picked = await this._maybeChooseBattleResponse(6000);
+        if (picked) final = (await this._extractLastMessage()) || final;
+      }
+
       const cleaned = this._cleanText(final);
 
       if (!cleaned || cleaned.trim().length === 0) {
@@ -680,6 +693,97 @@ class ArenaAdapter extends BaseAdapter {
       }
       return false;
     });
+  }
+
+  /**
+   * True when two assistant columns (Battle / Side-by-side) sit below the
+   * last user bubble, or the mode trigger explicitly says "Battle".
+   */
+  async _isBattleColumns() {
+    try {
+      return await this.page.evaluate(() => {
+        const vis = el => {
+          try {
+            const s = window.getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0'
+              && r.width > 0 && r.height > 0;
+          } catch { return false; }
+        };
+        for (const el of document.querySelectorAll('button, [role="tab"]')) {
+          try {
+            if (!vis(el)) continue;
+            if (/^battle\b/i.test((el.innerText || '').trim())) return true;
+          } catch {}
+        }
+        const users = [...document.querySelectorAll('[class*="items-end"]')];
+        let afterY = -Infinity;
+        if (users.length > 0) {
+          try { afterY = users[users.length - 1].getBoundingClientRect().bottom; } catch {}
+        }
+        const cols = [...document.querySelectorAll('.prose')].filter(el => {
+          if (el.closest('[class*="items-end"]')) return false;
+          if ((el.innerText || '').trim().length < 10) return false;
+          try { return el.getBoundingClientRect().top >= afterY - 12; } catch { return false; }
+        });
+        return cols.length >= 2;
+      });
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Battle mode: after both responses finish, Arena shows
+   * "Continue with A" / "Continue with B". Click one at random so the
+   * session keeps moving without a human. Polls up to maxWaitMs for the
+   * buttons to render. Returns the chosen letter or null when no choice
+   * is pending.
+   */
+  async _maybeChooseBattleResponse(maxWaitMs = 0) {
+    try {
+      const pick = Math.random() < 0.5 ? 'A' : 'B';
+      const deadline = Date.now() + Math.max(0, maxWaitMs);
+      for (;;) {
+        const clicked = await this.page.evaluate((pick) => {
+          const vis = el => {
+            try {
+              const s = window.getComputedStyle(el);
+              const r = el.getBoundingClientRect();
+              return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0'
+                && r.width > 0 && r.height > 0;
+            } catch { return false; }
+          };
+          const norm = t => (t || '')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          const find = letter => [...document.querySelectorAll('button, [role="button"], a')].find(el => {
+            if (!vis(el)) return false;
+            const t = norm(el.innerText) || norm(el.getAttribute && el.getAttribute('aria-label'));
+            return t.startsWith('continue with ' + letter);
+          });
+          const a = find('a');
+          const b = find('b');
+          if (!a && !b) return null;
+          const target = pick === 'A' ? (a || b) : (b || a);
+          const letter = target === a ? 'A' : 'B';
+          try { target.click(); } catch { return null; }
+          return letter;
+        }, pick);
+
+        if (clicked) {
+          logger.dim(`Battle mode — continued with response ${clicked} (random pick)`);
+          await this.page.waitForTimeout(1200);
+          return clicked;
+        }
+        if (Date.now() >= deadline) return null;
+        await this.page.waitForTimeout(300);
+      }
+    } catch {
+      return null;
+    }
   }
 
   async listChats() {
