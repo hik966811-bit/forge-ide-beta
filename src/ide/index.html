@@ -288,6 +288,13 @@
 
         <!-- Chat View -->
         <div class="chat-messages" id="agentChatView" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+          <!-- Task status chips (run tracker) -->
+          <div class="task-chips" id="taskChips" style="display:none;">
+            <div class="task-chip"><span class="task-chip-dot is-run" id="taskChipDot"></span><span id="taskChipStatusText">Working...</span></div>
+            <div class="task-chip" id="taskChipActions" style="display:none;"><span id="taskChipActionsText">0 actions</span></div>
+            <div class="task-chip" id="taskChipElapsed" style="display:none;"><span id="taskChipElapsedText"></span></div>
+            <div class="task-chip" id="taskChipModel" style="display:none;"><span id="taskChipModelText"></span></div>
+          </div>
           <div class="chat-messages" id="chatMessages">
           </div>
 

@@ -56,6 +56,15 @@ const dom = {
   agentLiveActivity: document.getElementById('agentLiveActivity'),
   activityTitle: document.getElementById('activityTitle'),
   activityDetails: document.getElementById('activityDetails'),
+  taskChips: document.getElementById('taskChips'),
+  taskChipDot: document.getElementById('taskChipDot'),
+  taskChipStatusText: document.getElementById('taskChipStatusText'),
+  taskChipActions: document.getElementById('taskChipActions'),
+  taskChipActionsText: document.getElementById('taskChipActionsText'),
+  taskChipElapsed: document.getElementById('taskChipElapsed'),
+  taskChipElapsedText: document.getElementById('taskChipElapsedText'),
+  taskChipModel: document.getElementById('taskChipModel'),
+  taskChipModelText: document.getElementById('taskChipModelText'),
   tabBtnChat: document.getElementById('tabBtnChat'),
   tabBtnTerminal: document.getElementById('tabBtnTerminal'),
   agentChatView: document.getElementById('agentChatView'),
@@ -1183,6 +1192,65 @@ dom.permissionCard.addEventListener('keydown', (e) => {
   }
 });
 
+// ── Task status chips (run tracker) ──────────────────────────────────────────
+const runChips = { active: false, waiting: false, startTime: 0, actions: 0, timer: null };
+
+function fmtChipElapsed(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return s === 1 ? '1 second' : `${s} seconds`;
+}
+
+function startRunChips() {
+  runChips.active = true;
+  runChips.waiting = false;
+  runChips.startTime = Date.now();
+  runChips.actions = 0;
+  if (runChips.timer) clearInterval(runChips.timer);
+  if (dom.taskChips) dom.taskChips.style.display = 'flex';
+  if (dom.taskChipActions) dom.taskChipActions.style.display = 'none';
+  if (dom.taskChipElapsed) dom.taskChipElapsed.style.display = 'inline-flex';
+  if (dom.taskChipElapsedText) dom.taskChipElapsedText.textContent = '0 seconds';
+  if (dom.taskChipModel && dom.taskChipModelText) {
+    const m = (dom.agentModelBadge && dom.agentModelBadge.textContent || '').trim();
+    if (m) { dom.taskChipModelText.textContent = m; dom.taskChipModel.style.display = 'inline-flex'; }
+    else dom.taskChipModel.style.display = 'none';
+  }
+  setRunStatus('Working...', 'run');
+  runChips.timer = setInterval(() => {
+    if (!runChips.active || !dom.taskChipElapsedText) return;
+    dom.taskChipElapsedText.textContent = fmtChipElapsed(Date.now() - runChips.startTime);
+  }, 500);
+}
+
+function setRunStatus(text, mode) {
+  if (dom.taskChips && runChips.startTime) dom.taskChips.style.display = 'flex';
+  if (dom.taskChipStatusText) dom.taskChipStatusText.textContent = text;
+  if (dom.taskChipDot) {
+    dom.taskChipDot.className = 'task-chip-dot ' +
+      (mode === 'done' ? 'is-done' : mode === 'error' ? 'is-error' : mode === 'wait' ? 'is-wait' : 'is-run');
+  }
+}
+
+function bumpRunAction(toolName) {
+  runChips.actions++;
+  if (dom.taskChipActions && dom.taskChipActionsText) {
+    dom.taskChipActionsText.textContent = runChips.actions === 1 ? '1 action' : `${runChips.actions} actions`;
+    dom.taskChipActions.style.display = 'inline-flex';
+  }
+  if (toolName) setRunStatus(`Result: ${toolName}`, runChips.active ? 'run' : 'done');
+}
+
+function finishRunChips(ok, errText) {
+  runChips.active = false;
+  runChips.waiting = false;
+  if (runChips.timer) { clearInterval(runChips.timer); runChips.timer = null; }
+  if (dom.taskChipElapsed) dom.taskChipElapsed.style.display = 'inline-flex';
+  if (dom.taskChipElapsedText && runChips.startTime) {
+    dom.taskChipElapsedText.textContent = `Worked for ${fmtChipElapsed(Date.now() - runChips.startTime)}`;
+  }
+  setRunStatus(ok ? 'Done' : `Error${errText ? ': ' + String(errText).slice(0, 80) : ''}`, ok ? 'done' : 'error');
+}
+
 // ── SSE Live Agent Events ───────────────────────────────────────────────────
 function setupEventSource() {
   state.eventSource = new EventSource('/api/agent/events');
@@ -1191,11 +1259,14 @@ function setupEventSource() {
     state.agentRunning = true;
     updateAgentRunningUI(true);
     dom.activityTitle.textContent = 'Agent running task...';
+    startRunChips();
   });
 
   state.eventSource.addEventListener('agent_tool_call', (e) => {
     const data = JSON.parse(e.data);
     dom.activityTitle.textContent = `Executing: ${data.name}`;
+    runChips.waiting = false;
+    setRunStatus(`Executing: ${data.name}`, 'run');
     if (data.name === 'show_info') {
       const title = data.args?.title || null;
       const content = data.args?.content || (typeof data.args === 'string' ? data.args : JSON.stringify(data.args));
@@ -1223,6 +1294,8 @@ function setupEventSource() {
       dom.chatMessages.appendChild(card);
       dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
       dom.activityTitle.textContent = `Result: ${data.toolName || 'tool'}`;
+      runChips.waiting = false;
+      bumpRunAction(data.toolName || 'tool');
     } catch {}
   });
 
@@ -1233,11 +1306,15 @@ function setupEventSource() {
     // into the next agent run as fake conversation.
     showToast(`Permission needed: ${data.detail || data.label || 'approve the tool'}`, 'error');
     appendChatMessage('assistant', `**Waiting for your approval:** \`${data.detail || data.label || 'a tool'}\` — the agent is paused until you Allow or Deny in the dialog.`, true);
+    runChips.waiting = true;
+    setRunStatus('Waiting for your approval...', 'wait');
     showPermissionDialog(data);
   });
 
   state.eventSource.addEventListener('permission_resolved', () => {
     dom.permissionModal.style.display = 'none';
+    runChips.waiting = false;
+    if (runChips.active) setRunStatus('Working...', 'run');
   });
 
   state.eventSource.addEventListener('agent_start', (e) => {
@@ -1259,8 +1336,10 @@ function setupEventSource() {
     const secs = Math.round((data.elapsedMs || 0) / 1000);
     if (!data.elapsedMs) {
       dom.activityTitle.textContent = 'Connecting to Forge session...';
+      if (!runChips.waiting) setRunStatus('Connecting...', 'run');
     } else {
       dom.activityTitle.textContent = `Forge thinking (${secs}s)...`;
+      if (!runChips.waiting) setRunStatus(`Thinking (${secs}s)...`, 'run');
     }
 
     if (data.readCount !== undefined && dom.thinkingReadCount) dom.thinkingReadCount.textContent = data.readCount;
@@ -1318,6 +1397,7 @@ function setupEventSource() {
     }
 
     showToast('Task finished', 'success');
+    finishRunChips(true);
     loadWorkspace();
   });
 
@@ -1325,12 +1405,15 @@ function setupEventSource() {
     state.agentRunning = false;
     updateAgentRunningUI(false);
     const data = JSON.parse(e.data);
+    finishRunChips(false, data.error);
     showToast(`Error: ${data.error}`, 'error');
   });
 
   state.eventSource.addEventListener('login_required', (e) => {
     const data = JSON.parse(e.data);
     const model = data.model || 'the AI site';
+    runChips.waiting = true;
+    setRunStatus(`Waiting for login to ${model}...`, 'wait');
     showToast(`Log in to ${model} in the browser window — Forge auto-detects when done`, 'error');
     appendChatMessage('assistant', `**Login required:** log in to \`${model}\` in the browser window that opened. Forge waits and continues automatically once you're logged in.`);
   });
@@ -1339,6 +1422,8 @@ function setupEventSource() {
     const data = JSON.parse(e.data);
     const model = data.model || 'the AI site';
     showToast(`Security check (captcha) on ${model} — complete it in the browser window`, 'error');
+    runChips.waiting = true;
+    setRunStatus(`Waiting for security check on ${model}...`, 'wait');
     appendChatMessage('assistant', `**Security check required:** a captcha / security verification appeared on \`${model}\`. Complete it in the browser window that opened. Forge waits and continues automatically once it's done.`);
   });
 
